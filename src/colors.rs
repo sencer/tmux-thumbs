@@ -18,6 +18,7 @@ pub fn get_color(color_name: &str) -> Box<dyn color::Color> {
     "black" => Box::new(color::Black),
     "red" => Box::new(color::Red),
     "green" => Box::new(color::Green),
+    "light_green" => Box::new(color::LightGreen),
     "yellow" => Box::new(color::Yellow),
     "blue" => Box::new(color::Blue),
     "magenta" => Box::new(color::Magenta),

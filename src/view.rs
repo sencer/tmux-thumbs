@@ -22,6 +22,7 @@ pub struct View<'a> {
   multi_foreground_color: Box<dyn color::Color>,
   multi_background_color: Box<dyn color::Color>,
   foreground_color: Box<dyn color::Color>,
+  foreground_color_2: Box<dyn color::Color>,
   background_color: Box<dyn color::Color>,
   hint_background_color: Box<dyn color::Color>,
   hint_foreground_color: Box<dyn color::Color>,
@@ -46,6 +47,7 @@ impl<'a> View<'a> {
     multi_foreground_color: Box<dyn color::Color>,
     multi_background_color: Box<dyn color::Color>,
     foreground_color: Box<dyn color::Color>,
+    foreground_color_2: Box<dyn color::Color>,
     background_color: Box<dyn color::Color>,
     hint_foreground_color: Box<dyn color::Color>,
     hint_background_color: Box<dyn color::Color>,
@@ -65,6 +67,7 @@ impl<'a> View<'a> {
       multi_foreground_color,
       multi_background_color,
       foreground_color,
+      foreground_color_2,
       background_color,
       hint_foreground_color,
       hint_background_color,
@@ -105,15 +108,17 @@ impl<'a> View<'a> {
 
     let selected = self.matches.get(self.skip);
 
-    for mat in self.matches.iter() {
+    for (idx, mat) in self.matches.iter().enumerate() {
       let chosen_hint = self.chosen.iter().any(|(hint, _)| hint == mat.text);
 
       let selected_color = if chosen_hint {
         &self.multi_foreground_color
       } else if selected == Some(mat) {
         &self.select_foreground_color
-      } else {
+      } else if idx.rem_euclid(2) == 0 {
         &self.foreground_color
+      } else {
+        &self.foreground_color_2
       };
       let selected_background_color = if chosen_hint {
         &self.multi_background_color

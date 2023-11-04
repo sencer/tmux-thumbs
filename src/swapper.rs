@@ -103,6 +103,14 @@ impl<'a> Swapper<'a> {
   }
 
   pub fn capture_active_pane(&mut self) {
+
+//  let mut file = std::fs::OpenOptions::new()
+//      .create(true)
+//      .write(true)
+//      .append(true)
+//      .open("/usr/local/google/home/sselcuk/foo.txt")
+//      .expect("Unable to open log file");
+
     let active_command = vec![
       "tmux",
       "list-panes",
@@ -110,9 +118,14 @@ impl<'a> Swapper<'a> {
       "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:#{?pane_active,active,nope}",
     ];
 
+//  file.write_all(active_command.join(" ").as_bytes()).expect("write failed");
+//  file.write_all(b"\n").expect("write failed");
+
     let output = self
       .executor
       .execute(active_command.iter().map(|arg| arg.to_string()).collect());
+//  file.write_all(output.as_bytes()).expect("write failed");
+//  file.write_all(b"\n").expect("write failed");
 
     let lines: Vec<&str> = output.split('\n').collect();
     let chunks: Vec<Vec<&str>> = lines.into_iter().map(|line| line.split(':').collect()).collect();
@@ -125,6 +138,8 @@ impl<'a> Swapper<'a> {
     let pane_id = active_pane.get(0).unwrap();
 
     self.active_pane_id = Some(pane_id.to_string());
+//  file.write_all(pane_id.as_bytes()).expect("write failed");
+//  file.write_all(b"\n").expect("write failed");
 
     let pane_height = active_pane
       .get(2)
@@ -133,6 +148,9 @@ impl<'a> Swapper<'a> {
       .expect("Unable to retrieve pane height");
 
     self.active_pane_height = Some(pane_height);
+
+//  file.write_all(self.active_pane_height.unwrap().as_bytes()).expect("write failed");
+//  file.write_all(b"\n").expect("write failed");
 
     if active_pane.get(1).unwrap().to_string() == "1" {
       let pane_scroll_position = active_pane

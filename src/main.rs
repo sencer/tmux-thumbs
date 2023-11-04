@@ -49,6 +49,12 @@ fn app_args<'a>() -> clap::ArgMatches<'a> {
         .default_value("green"),
     )
     .arg(
+      Arg::with_name("foreground_color_2")
+        .help("Sets the foregroud color for matches")
+        .long("fg-color-2")
+        .default_value("light_green"),
+    )
+    .arg(
       Arg::with_name("background_color")
         .help("Sets the background color for matches")
         .long("bg-color")
@@ -156,6 +162,7 @@ fn main() {
   };
 
   let foreground_color = colors::get_color(args.value_of("foreground_color").unwrap());
+  let foreground_color_2 = colors::get_color(args.value_of("foreground_color_2").unwrap());
   let background_color = colors::get_color(args.value_of("background_color").unwrap());
   let hint_foreground_color = colors::get_color(args.value_of("hint_foreground_color").unwrap());
   let hint_background_color = colors::get_color(args.value_of("hint_background_color").unwrap());
@@ -187,6 +194,7 @@ fn main() {
       multi_foreground_color,
       multi_background_color,
       foreground_color,
+      foreground_color_2,
       background_color,
       hint_foreground_color,
       hint_background_color,
