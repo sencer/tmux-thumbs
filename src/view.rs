@@ -168,7 +168,7 @@ impl<'a> View<'a> {
       };
 
       let line = &self.state.lines[mat.y as usize];
-      let prefix = &line[0..mat.x as usize];
+      let prefix: String = line.chars().take(mat.x as usize).collect();
       
       let visual_offset = prefix.width_cjk();
       
