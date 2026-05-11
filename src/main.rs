@@ -136,6 +136,19 @@ fn app_args<'a>() -> clap::ArgMatches<'a> {
         .short("t")
         .takes_value(true),
     )
+    .arg(
+      Arg::with_name("input")
+        .help("Read input from this file instead of stdin")
+        .long("input")
+        .short("i")
+        .takes_value(true),
+    )
+    .arg(
+      Arg::with_name("alt_background_color")
+        .help("Sets the alternate background color for rows")
+        .long("alt-bg-color")
+        .takes_value(true),
+    )
     .get_matches()
 }
 
@@ -157,6 +170,7 @@ fn main() {
 
   let foreground_color = colors::get_color(args.value_of("foreground_color").unwrap());
   let background_color = colors::get_color(args.value_of("background_color").unwrap());
+  let alt_background_color = args.value_of("alt_background_color").map(|c| colors::get_color(c));
   let hint_foreground_color = colors::get_color(args.value_of("hint_foreground_color").unwrap());
   let hint_background_color = colors::get_color(args.value_of("hint_background_color").unwrap());
   let select_foreground_color = colors::get_color(args.value_of("select_foreground_color").unwrap());
@@ -164,19 +178,25 @@ fn main() {
   let multi_foreground_color = colors::get_color(args.value_of("multi_foreground_color").unwrap());
   let multi_background_color = colors::get_color(args.value_of("multi_background_color").unwrap());
 
-  let stdin = io::stdin();
-  let mut handle = stdin.lock();
-  let mut output = String::new();
+  let input_file = args.value_of("input");
 
-  handle.read_to_string(&mut output).unwrap();
+  let output = if let Some(path) = input_file {
+    std::fs::read_to_string(path).expect("Unable to read input file")
+  } else {
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    let mut out = String::new();
+    handle.read_to_string(&mut out).unwrap();
+    out
+  };
 
   let lines = output.split('\n').collect::<Vec<&str>>();
 
-  let mut state = state::State::new(&lines, alphabet, &regexp);
+  let state = state::State::new(&lines, alphabet, &regexp);
 
   let selected = {
     let mut viewbox = view::View::new(
-      &mut state,
+      &state,
       multi,
       reverse,
       unique,
@@ -188,6 +208,7 @@ fn main() {
       multi_background_color,
       foreground_color,
       background_color,
+      alt_background_color,
       hint_foreground_color,
       hint_background_color,
     );

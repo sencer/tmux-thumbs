@@ -14,6 +14,16 @@ pub fn get_color(color_name: &str) -> Box<dyn color::Color> {
     return Box::new(color::Rgb(r, g, b));
   }
 
+  if let Ok(ansi_val) = color_name.parse::<u8>() {
+    return Box::new(color::AnsiValue(ansi_val));
+  }
+
+  if color_name.starts_with("color") {
+    if let Ok(ansi_val) = color_name[5..].parse::<u8>() {
+      return Box::new(color::AnsiValue(ansi_val));
+    }
+  }
+
   match color_name {
     "black" => Box::new(color::Black),
     "red" => Box::new(color::Red),
@@ -42,8 +52,24 @@ mod tests {
 
   #[test]
   fn parse_rgb() {
-    let text1 = println!("{}{}", color::Fg(&*get_color("#1b1cbf")), "foo");
-    let text2 = println!("{}{}", color::Fg(color::Rgb(27, 28, 191)), "foo");
+    let text1 = format!("{}", color::Fg(&*get_color("#1b1cbf")));
+    let text2 = format!("{}", color::Fg(color::Rgb(27, 28, 191)));
+
+    assert_eq!(text1, text2);
+  }
+
+  #[test]
+  fn parse_ansi() {
+    let text1 = format!("{}", color::Fg(&*get_color("124")));
+    let text2 = format!("{}", color::Fg(color::AnsiValue(124)));
+
+    assert_eq!(text1, text2);
+  }
+
+  #[test]
+  fn parse_ansi_color_prefix() {
+    let text1 = format!("{}", color::Fg(&*get_color("color124")));
+    let text2 = format!("{}", color::Fg(color::AnsiValue(124)));
 
     assert_eq!(text1, text2);
   }

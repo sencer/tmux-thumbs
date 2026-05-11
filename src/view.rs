@@ -9,9 +9,10 @@ use termion::screen::AlternateScreen;
 use termion::{color, cursor};
 
 use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthChar;
 
 pub struct View<'a> {
-  state: &'a mut state::State<'a>,
+  state: &'a state::State<'a>,
   skip: usize,
   multi: bool,
   contrast: bool,
@@ -23,6 +24,7 @@ pub struct View<'a> {
   multi_background_color: Box<dyn color::Color>,
   foreground_color: Box<dyn color::Color>,
   background_color: Box<dyn color::Color>,
+  alt_background_color: Option<Box<dyn color::Color>>,
   hint_background_color: Box<dyn color::Color>,
   hint_foreground_color: Box<dyn color::Color>,
   chosen: Vec<(String, bool)>,
@@ -35,7 +37,7 @@ enum CaptureEvent {
 
 impl<'a> View<'a> {
   pub fn new(
-    state: &'a mut state::State<'a>,
+    state: &'a state::State<'a>,
     multi: bool,
     reverse: bool,
     unique: bool,
@@ -47,6 +49,7 @@ impl<'a> View<'a> {
     multi_background_color: Box<dyn color::Color>,
     foreground_color: Box<dyn color::Color>,
     background_color: Box<dyn color::Color>,
+    alt_background_color: Option<Box<dyn color::Color>>,
     hint_foreground_color: Box<dyn color::Color>,
     hint_background_color: Box<dyn color::Color>,
   ) -> View<'a> {
@@ -66,6 +69,7 @@ impl<'a> View<'a> {
       multi_background_color,
       foreground_color,
       background_color,
+      alt_background_color,
       hint_foreground_color,
       hint_background_color,
       chosen: vec![],
@@ -95,11 +99,51 @@ impl<'a> View<'a> {
   fn render(&self, stdout: &mut dyn Write, typed_hint: &str) -> () {
     write!(stdout, "{}", cursor::Hide).unwrap();
 
+    let (width, height) = termion::terminal_size().unwrap_or((80, 24));
+    let w = if width == 0 { 80 } else { width as usize };
+    let h = if height == 0 { 24 } else { height as usize };
+
+    // Render background lines
     for (index, line) in self.state.lines.iter().enumerate() {
       let clean = line.trim_end_matches(|c: char| c.is_whitespace());
 
+      let r = index;
+      if r >= h {
+        break;
+      }
+      let goto = cursor::Goto(1, r as u16 + 1);
+
       if !clean.is_empty() {
-        print!("{goto}{text}", goto = cursor::Goto(1, index as u16 + 1), text = line);
+        if r == h - 1 {
+          // BOTTOM ROW: Print text as-is, trimmed to w-1, with NO trailing padding!
+          let line_vis_width = line.width_cjk();
+          let wrap_w = if w > 1 { w - 1 } else { w };
+          
+          let trimmed_line = if line_vis_width > wrap_w {
+            slice_line_to_width(line, wrap_w)
+          } else {
+            line.to_string()
+          };
+          
+          if let Some(ref alt_bg) = self.alt_background_color {
+            let bg = if index % 2 == 0 { &self.background_color } else { alt_bg };
+            print!("{goto}{bg}{text}{resetb}", goto = goto, bg = color::Bg(&**bg), text = trimmed_line, resetb = color::Bg(color::Reset));
+          } else {
+            print!("{goto}{text}", goto = goto, text = trimmed_line);
+          }
+        } else {
+          // NORMAL ROW: Pad to w-1 (or wrap_w)
+          if let Some(ref alt_bg) = self.alt_background_color {
+            let bg = if index % 2 == 0 { &self.background_color } else { alt_bg };
+            let line_vis_width = line.width_cjk();
+            let wrap_w = if w > 1 { w - 1 } else { w };
+            let padding_len = if line_vis_width < wrap_w { wrap_w - line_vis_width } else { 0 };
+            let padded = format!("{}{}", line, " ".repeat(padding_len));
+            print!("{goto}{bg}{text}{resetb}", goto = goto, bg = color::Bg(&**bg), text = padded, resetb = color::Bg(color::Reset));
+          } else {
+            print!("{goto}{text}", goto = goto, text = line);
+          }
+        }
       }
     }
 
@@ -123,16 +167,23 @@ impl<'a> View<'a> {
         &self.background_color
       };
 
-      // Find long utf sequences and extract it from mat.x
       let line = &self.state.lines[mat.y as usize];
       let prefix = &line[0..mat.x as usize];
-      let extra = prefix.width_cjk() - prefix.chars().count();
-      let offset = (mat.x as u16) - (extra as u16);
+      
+      let visual_offset = prefix.width_cjk();
+      
+      let screen_x = visual_offset;
+      let screen_y = mat.y as usize;
+
+      if screen_y >= h {
+        continue;
+      }
+
       let text = self.make_hint_text(mat.text);
 
       print!(
         "{goto}{background}{foregroud}{text}{resetf}{resetb}",
-        goto = cursor::Goto(offset + 1, mat.y as u16 + 1),
+        goto = cursor::Goto(screen_x as u16 + 1, screen_y as u16 + 1),
         foregroud = color::Fg(&**selected_color),
         background = color::Bg(&**selected_background_color),
         resetf = color::Fg(color::Reset),
@@ -141,19 +192,26 @@ impl<'a> View<'a> {
       );
 
       if let Some(ref hint) = mat.hint {
-        let extra_position = match self.position {
-          "right" => text.width_cjk() - hint.len(),
-          "off_left" => 0 - hint.len() - if self.contrast { 2 } else { 0 },
-          "off_right" => text.width_cjk(),
+        let extra_position: i16 = match self.position {
+          "right" => text.width_cjk() as i16 - hint.len() as i16,
+          "off_left" => 0 - hint.len() as i16 - if self.contrast { 2 } else { 0 },
+          "off_right" => text.width_cjk() as i16,
           _ => 0,
         };
 
         let text = self.make_hint_text(hint.as_str());
-        let final_position = std::cmp::max(offset as i16 + extra_position as i16, 0);
+        let final_position = std::cmp::max(visual_offset as i16 + extra_position, 0) as usize;
+
+        let hint_screen_x = final_position;
+        let hint_screen_y = mat.y as usize;
+
+        if hint_screen_y >= h {
+          continue;
+        }
 
         print!(
           "{goto}{background}{foregroud}{text}{resetf}{resetb}",
-          goto = cursor::Goto(final_position as u16 + 1, mat.y as u16 + 1),
+          goto = cursor::Goto(hint_screen_x as u16 + 1, hint_screen_y as u16 + 1),
           foregroud = color::Fg(&*self.hint_foreground_color),
           background = color::Bg(&*self.hint_background_color),
           resetf = color::Fg(color::Reset),
@@ -164,7 +222,7 @@ impl<'a> View<'a> {
         if hint.starts_with(typed_hint) {
           print!(
             "{goto}{background}{foregroud}{text}{resetf}{resetb}",
-            goto = cursor::Goto(final_position as u16 + 1, mat.y as u16 + 1),
+            goto = cursor::Goto(hint_screen_x as u16 + 1, hint_screen_y as u16 + 1),
             foregroud = color::Fg(&*self.multi_foreground_color),
             background = color::Bg(&*self.multi_background_color),
             resetf = color::Fg(color::Reset),
@@ -281,7 +339,9 @@ impl<'a> View<'a> {
           stdin.keys().for_each(|_| { /* Skip the rest of stdin buffer */ })
         }
         _ => {
-          // Nothing in the buffer. Wait for a bit...
+          if !termion::is_tty(&std::io::stdin()) {
+            break;
+          }
           std::thread::sleep(std::time::Duration::from_millis(50));
           continue; // don't render again if nothing new to show
         }
@@ -308,6 +368,20 @@ impl<'a> View<'a> {
   }
 }
 
+fn slice_line_to_width(line: &str, max_w: usize) -> String {
+  let mut sliced = String::new();
+  let mut current_width = 0;
+  for ch in line.chars() {
+    let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+    if current_width + ch_width > max_w {
+      break;
+    }
+    sliced.push(ch);
+    current_width += ch_width;
+  }
+  sliced
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -320,9 +394,9 @@ mod tests {
   fn hint_text() {
     let lines = split("lorem 127.0.0.1 lorem");
     let custom = [].to_vec();
-    let mut state = state::State::new(&lines, "abcd", &custom);
+    let state = state::State::new(&lines, "abcd", &custom);
     let mut view = View {
-      state: &mut state,
+      state: &state,
       skip: 0,
       multi: false,
       contrast: false,
@@ -334,6 +408,7 @@ mod tests {
       multi_background_color: colors::get_color("default"),
       foreground_color: colors::get_color("default"),
       background_color: colors::get_color("default"),
+      alt_background_color: None,
       hint_background_color: colors::get_color("default"),
       hint_foreground_color: colors::get_color("default"),
       chosen: vec![],

@@ -105,28 +105,22 @@ impl<'a> Swapper<'a> {
   pub fn capture_active_pane(&mut self) {
     let active_command = vec![
       "tmux",
-      "list-panes",
-      "-F",
-      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:#{?pane_active,active,nope}",
+      "display-message",
+      "-p",
+      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:active",
     ];
 
     let output = self
       .executor
       .execute(active_command.iter().map(|arg| arg.to_string()).collect());
 
-    let lines: Vec<&str> = output.split('\n').collect();
-    let chunks: Vec<Vec<&str>> = lines.into_iter().map(|line| line.split(':').collect()).collect();
+    let chunks: Vec<&str> = output.split(':').collect();
 
-    let active_pane = chunks
-      .iter()
-      .find(|&chunks| *chunks.get(5).unwrap() == "active")
-      .expect("Unable to find active pane");
-
-    let pane_id = active_pane.get(0).unwrap();
+    let pane_id = chunks.get(0).unwrap();
 
     self.active_pane_id = Some(pane_id.to_string());
 
-    let pane_height = active_pane
+    let pane_height = chunks
       .get(2)
       .unwrap()
       .parse()
@@ -134,8 +128,8 @@ impl<'a> Swapper<'a> {
 
     self.active_pane_height = Some(pane_height);
 
-    if active_pane.get(1).unwrap().to_string() == "1" {
-      let pane_scroll_position = active_pane
+    if chunks.get(1).unwrap().to_string() == "1" {
+      let pane_scroll_position = chunks
         .get(3)
         .unwrap()
         .parse()
@@ -144,7 +138,7 @@ impl<'a> Swapper<'a> {
       self.active_pane_scroll_position = Some(pane_scroll_position);
     }
 
-    let zoomed_pane = *active_pane.get(4).expect("Unable to retrieve zoom pane property") == "1";
+    let zoomed_pane = *chunks.get(4).expect("Unable to retrieve zoom pane property") == "1";
 
     self.active_pane_zoomed = Some(zoomed_pane);
   }
@@ -175,6 +169,7 @@ impl<'a> Swapper<'a> {
             "position",
             "fg-color",
             "bg-color",
+            "alt-bg-color",
             "hint-bg-color",
             "hint-fg-color",
             "select-fg-color",
@@ -199,14 +194,52 @@ impl<'a> Swapper<'a> {
       .collect::<Vec<String>>();
 
     let active_pane_id = self.active_pane_id.as_mut().unwrap().clone();
+    let height = self.active_pane_height.unwrap_or(i32::MAX);
 
-    let scroll_params =
-      if let (Some(pane_height), Some(scroll_position)) = (self.active_pane_height, self.active_pane_scroll_position) {
-        format!(" -S {} -E {}", -scroll_position, pane_height - scroll_position - 1)
+    // 1. Capture pane content synchronously before swap
+    let mut capture_args = vec![
+      "capture-pane".to_string(),
+      "-t".to_string(),
+      active_pane_id.to_string(),
+      "-p".to_string(),
+    ];
+    
+    if let (Some(pane_height), Some(scroll_position)) = (self.active_pane_height, self.active_pane_scroll_position) {
+      capture_args.push("-S".to_string());
+      capture_args.push(format!("{}", -scroll_position));
+      capture_args.push("-E".to_string());
+      capture_args.push(format!("{}", pane_height - scroll_position - 1));
+    }
+
+    let params: Vec<String> = [vec!["tmux".to_string()], capture_args].concat();
+    let captured_text = self.executor.execute(params);
+
+    // 2. Trim trailing spaces and empty lines, and tail to height in Rust
+    let captured_lines: Vec<&str> = captured_text.split('\n').collect();
+    let mut trimmed_lines: Vec<String> = captured_lines
+      .into_iter()
+      .map(|line| line.trim_end_matches(|c: char| c == ' ' || c == '\t').to_string())
+      .collect();
+
+    while let Some(last_line) = trimmed_lines.last() {
+      if last_line.trim().is_empty() {
+        trimmed_lines.pop();
       } else {
-        "".to_string()
-      };
+        break;
+      }
+    }
 
+    let tail_len = std::cmp::min(height as usize, trimmed_lines.len());
+    let visible_lines = if trimmed_lines.is_empty() {
+      &[]
+    } else {
+      &trimmed_lines[trimmed_lines.len() - tail_len..]
+    };
+    let final_text = visible_lines.join("\n");
+
+    std::fs::write("/tmp/thumbs-captured.log", final_text).unwrap();
+
+    // 3. Construct pane command that just reads from the pre-captured log
     let active_pane_zoomed = self.active_pane_zoomed.as_mut().unwrap().clone();
     let zoom_command = if active_pane_zoomed {
       format!("tmux resize-pane -t {} -Z;", active_pane_id)
@@ -215,10 +248,8 @@ impl<'a> Swapper<'a> {
     };
 
     let pane_command = format!(
-        "tmux capture-pane -J -t {active_pane_id} -p{scroll_params} | tail -n {height} | {dir}/target/release/thumbs -f '%U:%H' -t {tmp} {args}; tmux swap-pane -t {active_pane_id}; {zoom_command} tmux wait-for -S {signal}",
+        "({dir}/target/release/thumbs -f '%U:%H' -t {tmp} --input /tmp/thumbs-captured.log {args}) 2>/tmp/thumbs-stderr.log; tmux swap-pane -t {active_pane_id}; {zoom_command} tmux wait-for -S {signal}",
         active_pane_id = active_pane_id,
-        scroll_params = scroll_params,
-        height = self.active_pane_height.unwrap_or(i32::MAX),
         dir = self.dir,
         tmp = TMP_FILE,
         args = args.join(" "),
@@ -442,7 +473,7 @@ mod tests {
 
   #[test]
   fn retrieve_active_pane() {
-    let last_command_outputs = vec!["%97:100:24:1:0:active\n%106:100:24:1:0:nope\n%107:100:24:1:0:nope\n".to_string()];
+    let last_command_outputs = vec!["%97:0:24::0:active".to_string()];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
       Box::new(&mut executor),
@@ -463,8 +494,9 @@ mod tests {
     let last_command_outputs = vec![
       "".to_string(),
       "%100".to_string(),
+      "/tmp/some_path\n".to_string(),
       "".to_string(),
-      "%106:100:24:1:0:nope\n%98:100:24:1:0:active\n%107:100:24:1:0:nope\n".to_string(),
+      "%98:0:24::0:active".to_string(),
     ];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
