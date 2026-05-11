@@ -83,7 +83,7 @@ impl<'a> Swapper<'a> {
     let since_the_epoch = SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .expect("Time went backwards");
-    let signal = format!("thumbs-finished-{}", since_the_epoch.as_secs());
+    let signal = format!("thumbs-finished-{}", since_the_epoch.as_nanos());
 
     Swapper {
       executor,
