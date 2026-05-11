@@ -1,10 +1,6 @@
-extern crate clap;
-
-use self::clap::{App, Arg};
-use clap::crate_version;
+use clap::{Command, Arg, ArgAction};
 use regex::Regex;
 use std::io::Write;
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 trait Executor {
@@ -24,7 +20,7 @@ impl RealShell {
 
 impl Executor for RealShell {
   fn execute(&mut self, args: Vec<String>) -> String {
-    let execution = Command::new(args[0].as_str())
+    let execution = std::process::Command::new(args[0].as_str())
       .args(&args[1..])
       .output()
       .expect("Couldn't run it");
@@ -83,7 +79,7 @@ impl<'a> Swapper<'a> {
     let since_the_epoch = SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .expect("Time went backwards");
-    let signal = format!("thumbs-finished-{}", since_the_epoch.as_nanos());
+    let signal = format!("thumbs-finished-{}", since_the_epoch.as_secs());
 
     Swapper {
       executor,
@@ -364,7 +360,8 @@ impl<'a> Swapper<'a> {
     if let Some(upcase) = splitter.next() {
       if let Some(text) = splitter.next() {
         if self.osc52 {
-          let base64_text = base64::encode(text.as_bytes());
+          use base64::Engine;
+          let base64_text = base64::prelude::BASE64_STANDARD.encode(text.as_bytes());
           let osc_seq = format!("\x1b]52;0;{}\x07", base64_text);
           let tmux_seq = format!("\x1bPtmux;{}\x1b\\", osc_seq.replace("\x1b", "\x1b\x1b"));
 
@@ -560,50 +557,55 @@ mod tests {
   }
 }
 
-fn app_args<'a>() -> clap::ArgMatches<'a> {
-  App::new("tmux-thumbs")
-    .version(crate_version!())
+fn app_args() -> clap::ArgMatches {
+  Command::new("tmux-thumbs")
+    .version("0.8.0")
     .about("A lightning fast version of tmux-fingers, copy/pasting tmux like vimium/vimperator")
     .arg(
-      Arg::with_name("dir")
+      Arg::new("dir")
         .help("Directory where to execute thumbs")
         .long("dir")
+        .num_args(1)
         .default_value(""),
     )
     .arg(
-      Arg::with_name("command")
+      Arg::new("command")
         .help("Command to execute after choose a hint")
         .long("command")
+        .num_args(1)
         .default_value("tmux set-buffer -- \"{}\" && tmux display-message \"Copied {}\""),
     )
     .arg(
-      Arg::with_name("upcase_command")
+      Arg::new("upcase_command")
         .help("Command to execute after choose a hint, in upcase")
         .long("upcase-command")
+        .num_args(1)
         .default_value("tmux set-buffer -- \"{}\" && tmux paste-buffer && tmux display-message \"Copied {}\""),
     )
     .arg(
-      Arg::with_name("multi_command")
+      Arg::new("multi_command")
         .help("Command to execute after choose multiple hints")
         .long("multi-command")
+        .num_args(1)
         .default_value("tmux set-buffer -- \"{}\" && tmux paste-buffer && tmux display-message \"Multi copied {}\""),
     )
     .arg(
-      Arg::with_name("osc52")
+      Arg::new("osc52")
         .help("Print OSC52 copy escape sequence in addition to running the pick command")
         .long("osc52")
-        .short("o"),
+        .short('o')
+        .action(ArgAction::SetTrue),
     )
     .get_matches()
 }
 
 fn main() -> std::io::Result<()> {
   let args = app_args();
-  let dir = args.value_of("dir").unwrap();
-  let command = args.value_of("command").unwrap();
-  let upcase_command = args.value_of("upcase_command").unwrap();
-  let multi_command = args.value_of("multi_command").unwrap();
-  let osc52 = args.is_present("osc52");
+  let dir = args.get_one::<String>("dir").unwrap();
+  let command = args.get_one::<String>("command").unwrap();
+  let upcase_command = args.get_one::<String>("upcase_command").unwrap();
+  let multi_command = args.get_one::<String>("multi_command").unwrap();
+  let osc52 = args.get_flag("osc52");
 
   if dir.is_empty() {
     panic!("Invalid tmux-thumbs execution. Are you trying to execute tmux-thumbs directly?")

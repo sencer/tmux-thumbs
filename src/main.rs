@@ -9,8 +9,7 @@ mod colors;
 mod state;
 mod view;
 
-use self::clap::{App, Arg};
-use clap::crate_version;
+use clap::{Command, Arg, ArgAction};
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 
@@ -24,161 +23,176 @@ fn dbg(msg: &str) {
   writeln!(&mut file, "{}", msg).expect("Unable to write log file");
 }
 
-fn app_args<'a>() -> clap::ArgMatches<'a> {
-  App::new("thumbs")
-    .version(crate_version!())
+fn app_args() -> clap::ArgMatches {
+  Command::new("thumbs")
+    .version("0.8.0")
     .about("A lightning fast version copy/pasting like vimium/vimperator")
     .arg(
-      Arg::with_name("alphabet")
+      Arg::new("alphabet")
         .help("Sets the alphabet")
         .long("alphabet")
-        .short("a")
+        .short('a')
+        .num_args(1)
         .default_value("qwerty"),
     )
     .arg(
-      Arg::with_name("format")
+      Arg::new("format")
         .help("Specifies the out format for the picked hint. (%U: Upcase, %H: Hint)")
         .long("format")
-        .short("f")
+        .short('f')
+        .num_args(1)
         .default_value("%H"),
     )
     .arg(
-      Arg::with_name("foreground_color")
+      Arg::new("foreground_color")
         .help("Sets the foregroud color for matches")
         .long("fg-color")
+        .num_args(1)
         .default_value("green"),
     )
     .arg(
-      Arg::with_name("background_color")
+      Arg::new("background_color")
         .help("Sets the background color for matches")
         .long("bg-color")
+        .num_args(1)
         .default_value("black"),
     )
     .arg(
-      Arg::with_name("hint_foreground_color")
+      Arg::new("hint_foreground_color")
         .help("Sets the foregroud color for hints")
         .long("hint-fg-color")
+        .num_args(1)
         .default_value("yellow"),
     )
     .arg(
-      Arg::with_name("hint_background_color")
+      Arg::new("hint_background_color")
         .help("Sets the background color for hints")
         .long("hint-bg-color")
+        .num_args(1)
         .default_value("black"),
     )
     .arg(
-      Arg::with_name("multi_foreground_color")
+      Arg::new("multi_foreground_color")
         .help("Sets the foreground color for a multi selected item")
         .long("multi-fg-color")
+        .num_args(1)
         .default_value("yellow"),
     )
     .arg(
-      Arg::with_name("multi_background_color")
+      Arg::new("multi_background_color")
         .help("Sets the background color for a multi selected item")
         .long("multi-bg-color")
+        .num_args(1)
         .default_value("black"),
     )
     .arg(
-      Arg::with_name("select_foreground_color")
+      Arg::new("select_foreground_color")
         .help("Sets the foreground color for selection")
         .long("select-fg-color")
+        .num_args(1)
         .default_value("blue"),
     )
     .arg(
-      Arg::with_name("select_background_color")
+      Arg::new("select_background_color")
         .help("Sets the background color for selection")
         .long("select-bg-color")
+        .num_args(1)
         .default_value("black"),
     )
     .arg(
-      Arg::with_name("multi")
+      Arg::new("multi")
         .help("Enable multi-selection")
         .long("multi")
-        .short("m"),
+        .short('m')
+        .action(ArgAction::SetTrue),
     )
     .arg(
-      Arg::with_name("reverse")
+      Arg::new("reverse")
         .help("Reverse the order for assigned hints")
         .long("reverse")
-        .short("r"),
+        .short('r')
+        .action(ArgAction::SetTrue),
     )
     .arg(
-      Arg::with_name("unique")
+      Arg::new("unique")
         .help("Don't show duplicated hints for the same match")
         .long("unique")
-        .short("u"),
+        .short('u')
+        .action(ArgAction::SetTrue),
     )
     .arg(
-      Arg::with_name("position")
+      Arg::new("position")
         .help("Hint position")
         .long("position")
         .default_value("left")
-        .short("p"),
+        .short('p')
+        .num_args(1),
     )
     .arg(
-      Arg::with_name("regexp")
+      Arg::new("regexp")
         .help("Use this regexp as extra pattern to match")
         .long("regexp")
-        .short("x")
-        .takes_value(true)
-        .multiple(true),
+        .short('x')
+        .num_args(1..)
+        .action(ArgAction::Append),
     )
     .arg(
-      Arg::with_name("contrast")
+      Arg::new("contrast")
         .help("Put square brackets around hint for visibility")
         .long("contrast")
-        .short("c"),
+        .short('c')
+        .action(ArgAction::SetTrue),
     )
     .arg(
-      Arg::with_name("target")
+      Arg::new("target")
         .help("Stores the hint in the specified path")
         .long("target")
-        .short("t")
-        .takes_value(true),
+        .short('t')
+        .num_args(1),
     )
     .arg(
-      Arg::with_name("input")
+      Arg::new("input")
         .help("Read input from this file instead of stdin")
         .long("input")
-        .short("i")
-        .takes_value(true),
+        .short('i')
+        .num_args(1),
     )
     .arg(
-      Arg::with_name("alt_background_color")
+      Arg::new("alt_background_color")
         .help("Sets the alternate background color for rows")
         .long("alt-bg-color")
-        .takes_value(true),
+        .num_args(1),
     )
     .get_matches()
 }
 
 fn main() {
   let args = app_args();
-  let format = args.value_of("format").unwrap();
-  let alphabet = args.value_of("alphabet").unwrap();
-  let position = args.value_of("position").unwrap();
-  let target = args.value_of("target");
-  let multi = args.is_present("multi");
-  let reverse = args.is_present("reverse");
-  let unique = args.is_present("unique");
-  let contrast = args.is_present("contrast");
-  let regexp = if let Some(items) = args.values_of("regexp") {
-    items.collect::<Vec<_>>()
+  let format = args.get_one::<String>("format").unwrap();
+  let alphabet = args.get_one::<String>("alphabet").unwrap();
+  let position = args.get_one::<String>("position").unwrap();
+  let target = args.get_one::<String>("target").map(|s| s.as_str());
+  let multi = args.get_flag("multi");
+  let reverse = args.get_flag("reverse");
+  let unique = args.get_flag("unique");
+  let contrast = args.get_flag("contrast");
+  let regexp = if let Some(items) = args.get_many::<String>("regexp") {
+    items.map(|s| s.as_str()).collect::<Vec<_>>()
   } else {
     [].to_vec()
   };
 
-  let foreground_color = colors::get_color(args.value_of("foreground_color").unwrap());
-  let background_color = colors::get_color(args.value_of("background_color").unwrap());
-  let alt_background_color = args.value_of("alt_background_color").map(|c| colors::get_color(c));
-  let hint_foreground_color = colors::get_color(args.value_of("hint_foreground_color").unwrap());
-  let hint_background_color = colors::get_color(args.value_of("hint_background_color").unwrap());
-  let select_foreground_color = colors::get_color(args.value_of("select_foreground_color").unwrap());
-  let select_background_color = colors::get_color(args.value_of("select_background_color").unwrap());
-  let multi_foreground_color = colors::get_color(args.value_of("multi_foreground_color").unwrap());
-  let multi_background_color = colors::get_color(args.value_of("multi_background_color").unwrap());
+  let foreground_color = colors::get_color(args.get_one::<String>("foreground_color").unwrap());
+  let background_color = colors::get_color(args.get_one::<String>("background_color").unwrap());
+  let alt_background_color = args.get_one::<String>("alt_background_color").map(|c| colors::get_color(c.as_str()));
+  let hint_foreground_color = colors::get_color(args.get_one::<String>("hint_foreground_color").unwrap());
+  let hint_background_color = colors::get_color(args.get_one::<String>("hint_background_color").unwrap());
+  let select_foreground_color = colors::get_color(args.get_one::<String>("select_foreground_color").unwrap());
+  let select_background_color = colors::get_color(args.get_one::<String>("select_background_color").unwrap());
+  let multi_foreground_color = colors::get_color(args.get_one::<String>("multi_foreground_color").unwrap());
+  let multi_background_color = colors::get_color(args.get_one::<String>("multi_background_color").unwrap());
 
-  let input_file = args.value_of("input");
+  let input_file = args.get_one::<String>("input").map(|s| s.as_str());
 
   let output = if let Some(path) = input_file {
     std::fs::read_to_string(path).expect("Unable to read input file")

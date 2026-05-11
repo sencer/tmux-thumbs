@@ -5,7 +5,7 @@ use termion::async_stdin;
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
-use termion::screen::AlternateScreen;
+use termion::screen::IntoAlternateScreen;
 use termion::{color, cursor};
 
 use unicode_width::UnicodeWidthStr;
@@ -355,7 +355,7 @@ impl<'a> View<'a> {
 
   pub fn present(&mut self) -> Vec<(String, bool)> {
     let mut stdin = async_stdin();
-    let mut stdout = AlternateScreen::from(stdout().into_raw_mode().unwrap());
+    let mut stdout = stdout().into_raw_mode().unwrap().into_alternate_screen().unwrap();
 
     let hints = match self.listen(&mut stdin, &mut stdout) {
       CaptureEvent::Exit => vec![],
