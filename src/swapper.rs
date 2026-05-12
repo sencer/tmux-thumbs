@@ -62,7 +62,7 @@ fn parse_option_line(line: &str) -> Option<(String, String)> {
     if (value.starts_with('"') && value.ends_with('"')) || (value.starts_with('\'') && value.ends_with('\'')) {
       value.remove(0);
       value.pop();
-      value = value.replace("\\\"", "\"").replace("\\\\", "\\");
+      value = value.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\~", "~");
     }
     return Some((name.to_string(), value));
   }
@@ -454,7 +454,10 @@ impl<'a> Swapper<'a> {
   }
 
   pub fn execute_final_command(&mut self, text: &str, execute_command: &str) {
-    let final_command = str::replace(execute_command, "{}", "${THUMB}");
+    let mut final_command = str::replace(execute_command, "{}", "${THUMB}");
+    if let Some(ref active_pane) = self.active_pane_id {
+      final_command = str::replace(&final_command, "{active_pane}", active_pane);
+    }
     let retrieve_command = vec![
       "bash",
       "-c",
@@ -550,7 +553,7 @@ mod tests {
     let last_command_outputs = vec!["Blah blah blah, the ignored user script output".to_string()];
     let mut executor = TestShell::new(last_command_outputs);
 
-    let user_command = "echo \"{}\"".to_string();
+    let user_command = "echo \"{active_pane} {}\"".to_string();
     let upcase_command = "open \"{}\"".to_string();
     let multi_command = "open \"{}\"".to_string();
     let mut swapper = Swapper::new(
@@ -562,6 +565,7 @@ mod tests {
       false,
     );
 
+    swapper.active_pane_id = Some("%99".to_string());
     swapper.content = Some(format!(
       "{do_upcase}:{thumb_text}",
       do_upcase = false,
@@ -581,7 +585,7 @@ mod tests {
       "foobar;rm *",
       // $2: The user script, with {} replaced with ${THUMB},
       //     and will be eval'd with THUMB in scope.
-      "echo \"${THUMB}\"",
+      "echo \"%99 ${THUMB}\"",
     ];
 
     assert_eq!(executor.last_executed().unwrap(), expectation);
@@ -595,7 +599,7 @@ mod tests {
     );
     assert_eq!(
       parse_option_line(r#"@thumbs-upcase-command "\~/.dotfiles/tmux/run-tmux-fingers \"{}\"""#),
-      Some(("upcase-command".to_string(), r#"\~/.dotfiles/tmux/run-tmux-fingers "{}""#.to_string()))
+      Some(("upcase-command".to_string(), r#"~/.dotfiles/tmux/run-tmux-fingers "{}""#.to_string()))
     );
     assert_eq!(
       parse_option_line(r#"@thumbs-unique 1"#),

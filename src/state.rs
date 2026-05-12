@@ -20,7 +20,7 @@ pub fn visual_width(s: &str) -> usize {
   width
 }
 
-const EXCLUDE_PATTERNS: [(&'static str, &'static str); 1] = [("bash", r"[[:cntrl:]]\[([0-9]{1,2};)?([0-9]{1,2})?m")];
+const EXCLUDE_PATTERNS: [(&'static str, &'static str); 0] = [];
 
 const PATTERNS: [(&'static str, &'static str); 15] = [
   ("markdown_url", r"\[[^]]*\]\(([^)]+)\)"),
@@ -90,12 +90,20 @@ impl<'a> State<'a> {
     for (v_line_index, v_line) in lines.iter().enumerate() {
       let is_wrapped = usable_width > 0 && visual_width(v_line) >= usable_width && v_line_index < lines.len() - 1;
       
-      for (v_char_index, ch) in v_line.chars().enumerate() {
-        let bytes = ch.len_utf8();
-        for _ in 0..bytes {
-          map.push((v_line_index as i32, v_char_index as i32));
+      let ansi_spans = ANSI_RE.find_iter(v_line).map(|m| (m.start(), m.end())).collect::<Vec<_>>();
+      
+      let mut char_count = 0;
+      for (byte_index, ch) in v_line.char_indices() {
+        let in_ansi = ansi_spans.iter().any(|(start, end)| byte_index >= *start && byte_index < *end);
+        
+        if !in_ansi {
+          let bytes = ch.len_utf8();
+          for _ in 0..bytes {
+            map.push((v_line_index as i32, char_count as i32));
+          }
+          J.push(ch);
         }
-        J.push(ch);
+        char_count += 1;
       }
       
       if !is_wrapped {
@@ -544,5 +552,22 @@ mod tests {
     assert_eq!(visual_width("    \x1b[31mmodified:\x1b[m   "), 16);
     assert_eq!(visual_width("\t\x1b[31mmodified:\x1b[m    "), 21);
     assert_eq!(visual_width("a\t"), 8);
+  }
+
+  #[test]
+  fn test_debug_user_log() {
+    let log_content = std::fs::read_to_string("/usr/local/google/home/sselcuk/tmux.log").unwrap();
+    let lines = log_content.split('\n').collect::<Vec<&str>>();
+    let regexp = vec![
+      "(?:Change|CL) [0-9]{8,}",
+      r"\~?/?/?(?:[\w\d_.*\${}]+(?:[=\-][\w\d_.*]+)*/)+(?:[\w\d_.*\${}]+(?:[?@=\-][\w\d_.*\${}]*)*)?",
+      r"([\w\d]+\.(pdf|jpg|png))",
+    ];
+    let state = State::new(&lines, "qwerty", &regexp);
+    let results = state.matches(true, true);
+    println!("MATCHES COUNT: {}", results.len());
+    for m in results {
+      println!("HINT: {:?} -> TEXT: {:?}", m.hint, m.text);
+    }
   }
 }
