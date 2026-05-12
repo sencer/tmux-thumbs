@@ -78,7 +78,7 @@ select opt in "Compile" "Download"; do
 
       echo "  Downloading ${platform} binary..."
 
-      sources=$(curl -s "https://api.github.com/repos/fcsonline/tmux-thumbs/releases/latest" | grep browser_download_url)
+      sources=$(curl -s "https://api.github.com/repos/sencer/tmux-thumbs/releases/latest" | grep browser_download_url)
 
       case $platform in
         Darwin_x86_64)
