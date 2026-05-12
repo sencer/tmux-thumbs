@@ -97,6 +97,8 @@ NOTE: for changes to take effect, you'll need to source again your `.tmux.conf` 
 * [@thumbs-upcase-command](#thumbs-upcase-command)
 * [@thumbs-multi-command](#thumbs-multi-command)
 * [@thumbs-bg-color](#thumbs-bg-color)
+* [@thumbs-alt-bg-color](#thumbs-alt-bg-color)
+* [@thumbs-dim-color](#thumbs-dim-color)
 * [@thumbs-fg-color](#thumbs-fg-color)
 * [@thumbs-hint-bg-color](#thumbs-hint-bg-color)
 * [@thumbs-hint-fg-color](#thumbs-hint-fg-color)
@@ -234,6 +236,30 @@ For example:
 
 ```
 set -g @thumbs-bg-color blue
+```
+
+### @thumbs-alt-bg-color
+
+`default: black`
+
+Sets the alternate background color for alternating rows to provide visual contrast.
+
+For example:
+
+```
+set -g @thumbs-alt-bg-color "#2a3141"
+```
+
+### @thumbs-dim-color
+
+`default: none`
+
+Sets the foreground color for all non-matched background text to dim them out (making matches and hints stand out).
+
+For example:
+
+```
+set -g @thumbs-dim-color "#4c566a"
 ```
 
 ### @thumbs-fg-color
@@ -433,7 +459,7 @@ cargo install thumbs
 And those are all available options:
 
 ```
-thumbs 0.7.1
+thumbs 0.8.0
 A lightning fast version copy/pasting like vimium/vimperator
 
 USAGE:
@@ -449,7 +475,9 @@ FLAGS:
 
 OPTIONS:
     -a, --alphabet <alphabet>                          Sets the alphabet [default: qwerty]
+        --alt-bg-color <alternate_background_color>    Sets the alternate background color for rows [default: black]
         --bg-color <background_color>                  Sets the background color for matches [default: black]
+        --dim-color <dim_color>                        Sets the foreground color for non-matched background text
         --fg-color <foreground_color>                  Sets the foregroud color for matches [default: green]
     -f, --format <format>
             Specifies the out format for the picked hint. (%U: Upcase, %H: Hint) [default: %H]
