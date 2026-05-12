@@ -116,7 +116,7 @@ impl<'a> View<'a> {
       }
       let goto = cursor::Goto(1, r as u16 + 1);
 
-      if !clean.is_empty() {
+      if !clean.is_empty() || self.alt_background_color.is_some() {
         let (fg, reset_fg) = if let Some(ref dim_fg) = self.dim_color {
           (format!("{}", color::Fg(&**dim_fg)), format!("{}", color::Fg(color::Reset)))
         } else {
