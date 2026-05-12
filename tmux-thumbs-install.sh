@@ -82,7 +82,12 @@ select opt in "Compile" "Download"; do
 
       case $platform in
         Darwin_x86_64)
-          url=$(echo "${sources}" | grep -o 'https://.*darwin.zip' | uniq)
+          url=$(echo "${sources}" | grep -o 'https://.*x86_64-apple-darwin.zip' | uniq)
+          curl -sL "${url}" | bsdtar -xf - thumbs tmux-thumbs
+
+          ;;
+        Darwin_arm64|Darwin_aarch64)
+          url=$(echo "${sources}" | grep -o 'https://.*aarch64-apple-darwin.zip' | uniq)
           curl -sL "${url}" | bsdtar -xf - thumbs tmux-thumbs
 
           ;;

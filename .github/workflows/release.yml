@@ -60,8 +60,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Compile
-        run: cargo build --release
+        with:
+          targets: x86_64-apple-darwin, aarch64-apple-darwin
+      - name: Compile x86_64
+        run: cargo build --release --target x86_64-apple-darwin
+      - name: Compile aarch64
+        run: cargo build --release --target aarch64-apple-darwin
       - name: Package and Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,20 +73,33 @@ jobs:
           version=$(grep -m1 'version =' Cargo.toml | cut -d '"' -f2)
           tag="v$version"
           
-          # Package Darwin Zip
-          mkdir -p target/release/dist
-          cp target/release/thumbs target/release/dist/
-          cp target/release/tmux-thumbs target/release/dist/
-          cp tmux-thumbs.sh tmux-thumbs.tmux tmux-thumbs-install.sh target/release/dist/
+          # Package Intel Zip
+          mkdir -p target/x86_64-apple-darwin/release/dist
+          cp target/x86_64-apple-darwin/release/thumbs target/x86_64-apple-darwin/release/dist/
+          cp target/x86_64-apple-darwin/release/tmux-thumbs target/x86_64-apple-darwin/release/dist/
+          cp tmux-thumbs.sh tmux-thumbs.tmux tmux-thumbs-install.sh target/x86_64-apple-darwin/release/dist/
           
-          cd target/release/dist
-          zip -r "../../../tmux-thumbs_${version}_x86_64-apple-darwin.zip" *
-          cd ../../..
+          cd target/x86_64-apple-darwin/release/dist
+          zip -r "../../../../tmux-thumbs_${version}_x86_64-apple-darwin.zip" *
+          cd ../../../..
+          
+          # Package Apple Silicon Zip
+          mkdir -p target/aarch64-apple-darwin/release/dist
+          cp target/aarch64-apple-darwin/release/thumbs target/aarch64-apple-darwin/release/dist/
+          cp target/aarch64-apple-darwin/release/tmux-thumbs target/aarch64-apple-darwin/release/dist/
+          cp tmux-thumbs.sh tmux-thumbs.tmux tmux-thumbs-install.sh target/aarch64-apple-darwin/release/dist/
+          
+          cd target/aarch64-apple-darwin/release/dist
+          zip -r "../../../../tmux-thumbs_${version}_aarch64-apple-darwin.zip" *
+          cd ../../../..
           
           # Calculate sha256sum
           shasum -a 256 "tmux-thumbs_${version}_x86_64-apple-darwin.zip" > "tmux-thumbs_${version}_x86_64-apple-darwin.zip.sha256sum"
+          shasum -a 256 "tmux-thumbs_${version}_aarch64-apple-darwin.zip" > "tmux-thumbs_${version}_aarch64-apple-darwin.zip.sha256sum"
           
           # Upload to release
           gh release upload "$tag" \
             "tmux-thumbs_${version}_x86_64-apple-darwin.zip" \
-            "tmux-thumbs_${version}_x86_64-apple-darwin.zip.sha256sum" --clobber || true
+            "tmux-thumbs_${version}_x86_64-apple-darwin.zip.sha256sum" \
+            "tmux-thumbs_${version}_aarch64-apple-darwin.zip" \
+            "tmux-thumbs_${version}_aarch64-apple-darwin.zip.sha256sum" --clobber || true
