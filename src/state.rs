@@ -3,6 +3,23 @@ use unicode_width::UnicodeWidthStr;
 use std::collections::HashMap;
 use std::fmt;
 
+lazy_static! {
+  static ref ANSI_RE: Regex = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+}
+
+pub fn visual_width(s: &str) -> usize {
+  let stripped = ANSI_RE.replace_all(s, "");
+  let mut width = 0;
+  for ch in stripped.chars() {
+    if ch == '\t' {
+      width += 8 - (width % 8);
+    } else {
+      width += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+    }
+  }
+  width
+}
+
 const EXCLUDE_PATTERNS: [(&'static str, &'static str); 1] = [("bash", r"[[:cntrl:]]\[([0-9]{1,2};)?([0-9]{1,2})?m")];
 
 const PATTERNS: [(&'static str, &'static str); 15] = [
@@ -68,10 +85,10 @@ impl<'a> State<'a> {
     let mut J = String::new();
     let mut map = Vec::new();
     
-    let usable_width = lines.iter().map(|l| l.width_cjk()).max().unwrap_or(0);
+    let usable_width = lines.iter().map(|l| visual_width(l)).max().unwrap_or(0);
 
     for (v_line_index, v_line) in lines.iter().enumerate() {
-      let is_wrapped = usable_width > 0 && v_line.width_cjk() >= usable_width && v_line_index < lines.len() - 1;
+      let is_wrapped = usable_width > 0 && visual_width(v_line) >= usable_width && v_line_index < lines.len() - 1;
       
       for (v_char_index, ch) in v_line.chars().enumerate() {
         let bytes = ch.len_utf8();
@@ -517,5 +534,15 @@ mod tests {
     );
     assert_eq!(results.get(7).unwrap().text.clone(), "8888");
     assert_eq!(results.get(8).unwrap().text.clone(), "https://crates.io/23456/fd70b569");
+  }
+
+  #[test]
+  fn test_visual_width() {
+    assert_eq!(visual_width("hello"), 5);
+    assert_eq!(visual_width("\x1b[31mhello\x1b[m"), 5);
+    assert_eq!(visual_width("\x1b[1;31mhello\x1b[0m world"), 11);
+    assert_eq!(visual_width("    \x1b[31mmodified:\x1b[m   "), 16);
+    assert_eq!(visual_width("\t\x1b[31mmodified:\x1b[m    "), 21);
+    assert_eq!(visual_width("a\t"), 8);
   }
 }

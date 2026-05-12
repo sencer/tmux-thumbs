@@ -125,7 +125,7 @@ impl<'a> View<'a> {
 
         if r == h - 1 {
           // BOTTOM ROW: Print text as-is, trimmed to w-1, with NO trailing padding!
-          let line_vis_width = line.width_cjk();
+          let line_vis_width = state::visual_width(line);
           let wrap_w = if w > 1 { w - 1 } else { w };
           
           let trimmed_line = if line_vis_width > wrap_w {
@@ -144,7 +144,7 @@ impl<'a> View<'a> {
           // NORMAL ROW: Pad to w-1 (or wrap_w)
           if let Some(ref alt_bg) = self.alt_background_color {
             let bg = if index % 2 == 0 { &self.background_color } else { alt_bg };
-            let line_vis_width = line.width_cjk();
+            let line_vis_width = state::visual_width(line);
             let wrap_w = if w > 1 { w - 1 } else { w };
             let padding_len = if line_vis_width < wrap_w { wrap_w - line_vis_width } else { 0 };
             let padded = format!("{}{}", line, " ".repeat(padding_len));
@@ -179,7 +179,7 @@ impl<'a> View<'a> {
       let line = &self.state.lines[mat.y as usize];
       let prefix: String = line.chars().take(mat.x as usize).collect();
       
-      let visual_offset = prefix.width_cjk();
+      let visual_offset = state::visual_width(&prefix);
       
       let screen_x = visual_offset;
       let screen_y = mat.y as usize;
@@ -380,8 +380,29 @@ impl<'a> View<'a> {
 fn slice_line_to_width(line: &str, max_w: usize) -> String {
   let mut sliced = String::new();
   let mut current_width = 0;
+  let mut in_escape = false;
+  
   for ch in line.chars() {
-    let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+    if in_escape {
+      sliced.push(ch);
+      if ch.is_ascii_alphabetic() {
+        in_escape = false;
+      }
+      continue;
+    }
+    
+    if ch == '\x1b' {
+      in_escape = true;
+      sliced.push(ch);
+      continue;
+    }
+    
+    let ch_width = if ch == '\t' {
+      8 - (current_width % 8)
+    } else {
+      unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
+    };
+    
     if current_width + ch_width > max_w {
       break;
     }
@@ -430,5 +451,14 @@ mod tests {
     view.contrast = true;
     let result = view.make_hint_text("a");
     assert_eq!(result, "[a]".to_string());
+  }
+
+  #[test]
+  fn test_slice_line_to_width() {
+    assert_eq!(slice_line_to_width("hello", 3), "hel");
+    assert_eq!(slice_line_to_width("\x1b[31mhello\x1b[m", 3), "\x1b[31mhel");
+    assert_eq!(slice_line_to_width("hello \x1b[31mworld\x1b[m", 8), "hello \x1b[31mwo");
+    assert_eq!(slice_line_to_width("\tmodified", 12), "\tmodi");
+    assert_eq!(slice_line_to_width("a\tmodified", 12), "a\tmodi");
   }
 }
