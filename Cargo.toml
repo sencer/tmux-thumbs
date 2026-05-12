@@ -13,7 +13,7 @@ termion = "4.0.2"
 regex = "1.7.1"
 clap = "4.5.4"
 base64 = "0.22.1"
-unicode-width = "0.1.10"
+unicode-width = "0.2.2"
 lazy_static = "1.4.0"
 
 [[bin]]
