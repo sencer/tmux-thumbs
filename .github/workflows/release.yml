@@ -28,3 +28,4 @@ jobs:
           RUSTTARGET: ${{ matrix.target }}
           EXTRA_FILES: "tmux-thumbs.sh tmux-thumbs.tmux tmux-thumbs-install.sh"
           ARCHIVE_TYPES: ${{ matrix.archive }}
+          MACOSX_DEPLOYMENT_TARGET: "10.10"
