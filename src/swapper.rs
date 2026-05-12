@@ -166,6 +166,7 @@ impl<'a> Swapper<'a> {
             "fg-color",
             "bg-color",
             "alt-bg-color",
+            "dim-color",
             "hint-bg-color",
             "hint-fg-color",
             "select-fg-color",

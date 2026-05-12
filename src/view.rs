@@ -25,6 +25,7 @@ pub struct View<'a> {
   foreground_color: Box<dyn color::Color>,
   background_color: Box<dyn color::Color>,
   alt_background_color: Option<Box<dyn color::Color>>,
+  dim_color: Option<Box<dyn color::Color>>,
   hint_background_color: Box<dyn color::Color>,
   hint_foreground_color: Box<dyn color::Color>,
   chosen: Vec<(String, bool)>,
@@ -50,6 +51,7 @@ impl<'a> View<'a> {
     foreground_color: Box<dyn color::Color>,
     background_color: Box<dyn color::Color>,
     alt_background_color: Option<Box<dyn color::Color>>,
+    dim_color: Option<Box<dyn color::Color>>,
     hint_foreground_color: Box<dyn color::Color>,
     hint_background_color: Box<dyn color::Color>,
   ) -> View<'a> {
@@ -70,6 +72,7 @@ impl<'a> View<'a> {
       foreground_color,
       background_color,
       alt_background_color,
+      dim_color,
       hint_foreground_color,
       hint_background_color,
       chosen: vec![],
@@ -114,6 +117,12 @@ impl<'a> View<'a> {
       let goto = cursor::Goto(1, r as u16 + 1);
 
       if !clean.is_empty() {
+        let (fg, reset_fg) = if let Some(ref dim_fg) = self.dim_color {
+          (format!("{}", color::Fg(&**dim_fg)), format!("{}", color::Fg(color::Reset)))
+        } else {
+          ("".to_string(), "".to_string())
+        };
+
         if r == h - 1 {
           // BOTTOM ROW: Print text as-is, trimmed to w-1, with NO trailing padding!
           let line_vis_width = line.width_cjk();
@@ -127,9 +136,9 @@ impl<'a> View<'a> {
           
           if let Some(ref alt_bg) = self.alt_background_color {
             let bg = if index % 2 == 0 { &self.background_color } else { alt_bg };
-            print!("{goto}{bg}{text}{resetb}", goto = goto, bg = color::Bg(&**bg), text = trimmed_line, resetb = color::Bg(color::Reset));
+            print!("{goto}{bg}{fg}{text}{reset_fg}{resetb}", goto = goto, bg = color::Bg(&**bg), fg = fg, text = trimmed_line, reset_fg = reset_fg, resetb = color::Bg(color::Reset));
           } else {
-            print!("{goto}{text}", goto = goto, text = trimmed_line);
+            print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = trimmed_line, reset_fg = reset_fg);
           }
         } else {
           // NORMAL ROW: Pad to w-1 (or wrap_w)
@@ -139,9 +148,9 @@ impl<'a> View<'a> {
             let wrap_w = if w > 1 { w - 1 } else { w };
             let padding_len = if line_vis_width < wrap_w { wrap_w - line_vis_width } else { 0 };
             let padded = format!("{}{}", line, " ".repeat(padding_len));
-            print!("{goto}{bg}{text}{resetb}", goto = goto, bg = color::Bg(&**bg), text = padded, resetb = color::Bg(color::Reset));
+            print!("{goto}{bg}{fg}{text}{reset_fg}{resetb}", goto = goto, bg = color::Bg(&**bg), fg = fg, text = padded, reset_fg = reset_fg, resetb = color::Bg(color::Reset));
           } else {
-            print!("{goto}{text}", goto = goto, text = line);
+            print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = line, reset_fg = reset_fg);
           }
         }
       }
@@ -409,6 +418,7 @@ mod tests {
       foreground_color: colors::get_color("default"),
       background_color: colors::get_color("default"),
       alt_background_color: None,
+      dim_color: None,
       hint_background_color: colors::get_color("default"),
       hint_foreground_color: colors::get_color("default"),
       chosen: vec![],

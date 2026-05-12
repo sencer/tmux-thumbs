@@ -163,6 +163,12 @@ fn app_args() -> clap::ArgMatches {
         .long("alt-bg-color")
         .num_args(1),
     )
+    .arg(
+      Arg::new("dim_color")
+        .help("Sets the foreground color for non-matched background text")
+        .long("dim-color")
+        .num_args(1),
+    )
     .get_matches()
 }
 
@@ -185,6 +191,7 @@ fn main() {
   let foreground_color = colors::get_color(args.get_one::<String>("foreground_color").unwrap());
   let background_color = colors::get_color(args.get_one::<String>("background_color").unwrap());
   let alt_background_color = args.get_one::<String>("alt_background_color").map(|c| colors::get_color(c.as_str()));
+  let dim_color = args.get_one::<String>("dim_color").map(|c| colors::get_color(c.as_str()));
   let hint_foreground_color = colors::get_color(args.get_one::<String>("hint_foreground_color").unwrap());
   let hint_background_color = colors::get_color(args.get_one::<String>("hint_background_color").unwrap());
   let select_foreground_color = colors::get_color(args.get_one::<String>("select_foreground_color").unwrap());
@@ -223,6 +230,7 @@ fn main() {
       foreground_color,
       background_color,
       alt_background_color,
+      dim_color,
       hint_foreground_color,
       hint_background_color,
     );
