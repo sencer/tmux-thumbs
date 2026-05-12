@@ -6,25 +6,80 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
-    name: release ${{ matrix.target }}
+  release-linux:
+    name: release Linux Musl
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            archive: tar.gz tar.xz
-          - target: x86_64-apple-darwin
-            archive: zip
     steps:
-      - uses: actions/checkout@master
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.0
+      - uses: actions/checkout@v4
+      - name: Install musl-tools
+        run: sudo apt-get install -y musl-tools
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          TOOLCHAIN_VERSION: stable
+          targets: x86_64-unknown-linux-musl
+      - name: Compile
+        run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Package and Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUSTTARGET: ${{ matrix.target }}
-          EXTRA_FILES: "tmux-thumbs.sh tmux-thumbs.tmux tmux-thumbs-install.sh"
-          ARCHIVE_TYPES: ${{ matrix.archive }}
+        run: |
+          version=$(grep -m1 'version =' Cargo.toml | cut -d '"' -f2)
+          tag="v$version"
+          
+          # Package Linux Musl Tarball (tar.gz and tar.xz)
+          mkdir -p target/x86_64-unknown-linux-musl/release/dist
+          cp target/x86_64-unknown-linux-musl/release/thumbs target/x86_64-unknown-linux-musl/release/dist/
+          cp target/x86_64-unknown-linux-musl/release/tmux-thumbs target/x86_64-unknown-linux-musl/release/dist/
+          cp tmux-thumbs.sh tmux-thumbs.tmux tmux-thumbs-install.sh target/x86_64-unknown-linux-musl/release/dist/
+          
+          cd target/x86_64-unknown-linux-musl/release/dist
+          
+          # Create tar.gz
+          tar -czf "../../../../tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.gz" *
+          # Create tar.xz
+          tar -cJf "../../../../tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.xz" *
+          
+          cd ../../../..
+          
+          # Calculate sha256sum
+          sha256sum "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.gz" > "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.gz.sha256sum"
+          sha256sum "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.xz" > "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.xz.sha256sum"
+          
+          # Upload to release
+          gh release upload "$tag" \
+            "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.gz" \
+            "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.gz.sha256sum" \
+            "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.xz" \
+            "tmux-thumbs_${version}_x86_64-unknown-linux-musl.tar.xz.sha256sum" --clobber || true
+
+  release-mac:
+    name: release macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile
+        run: cargo build --release
+      - name: Package and Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(grep -m1 'version =' Cargo.toml | cut -d '"' -f2)
+          tag="v$version"
+          
+          # Package Darwin Zip
+          mkdir -p target/release/dist
+          cp target/release/thumbs target/release/dist/
+          cp target/release/tmux-thumbs target/release/dist/
+          cp tmux-thumbs.sh tmux-thumbs.tmux tmux-thumbs-install.sh target/release/dist/
+          
+          cd target/release/dist
+          zip -r "../../../tmux-thumbs_${version}_x86_64-apple-darwin.zip" *
+          cd ../../..
+          
+          # Calculate sha256sum
+          shasum -a 256 "tmux-thumbs_${version}_x86_64-apple-darwin.zip" > "tmux-thumbs_${version}_x86_64-apple-darwin.zip.sha256sum"
+          
+          # Upload to release
+          gh release upload "$tag" \
+            "tmux-thumbs_${version}_x86_64-apple-darwin.zip" \
+            "tmux-thumbs_${version}_x86_64-apple-darwin.zip.sha256sum" --clobber || true
