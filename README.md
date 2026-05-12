@@ -88,6 +88,7 @@ parameters to set your perfect profile.
 NOTE: for changes to take effect, you'll need to source again your `.tmux.conf` file.
 
 * [@thumbs-key](#thumbs-key)
+* [@thumbs-no-prefix](#thumbs-no-prefix)
 * [@thumbs-alphabet](#thumbs-alphabet)
 * [@thumbs-reverse](#thumbs-reverse)
 * [@thumbs-unique](#thumbs-unique)
@@ -126,6 +127,18 @@ bind whatever key to `thumbs-pick` command. For example:
 
 ```
 bind-key \; thumbs-pick
+```
+
+### @thumbs-no-prefix
+
+`default: 0`
+
+If this is set to `1`, `tmux-thumbs` will bind the trigger key directly without the tmux prefix. This allows you to trigger thumbs mode with a single hotkey (e.g. `C-Space` if your key is `space` or `C-Space`).
+
+For example:
+
+```
+set -g @thumbs-no-prefix 1
 ```
 
 ### @thumbs-alphabet
