@@ -16,6 +16,7 @@ pub struct View<'a> {
   skip: usize,
   multi: bool,
   contrast: bool,
+  faint: bool,
   position: &'a str,
   matches: Vec<state::Match<'a>>,
   select_foreground_color: Box<dyn color::Color>,
@@ -43,6 +44,7 @@ impl<'a> View<'a> {
     reverse: bool,
     unique: bool,
     contrast: bool,
+    faint: bool,
     position: &'a str,
     select_foreground_color: Box<dyn color::Color>,
     select_background_color: Box<dyn color::Color>,
@@ -63,6 +65,7 @@ impl<'a> View<'a> {
       skip,
       multi,
       contrast,
+      faint,
       position,
       matches,
       select_foreground_color,
@@ -134,24 +137,35 @@ impl<'a> View<'a> {
             line.to_string()
           };
           
-          if let Some(ref alt_bg) = self.alt_background_color {
-            let bg = if index % 2 == 0 { &self.background_color } else { alt_bg };
-            print!("{goto}{bg}{fg}{text}{reset_fg}{resetb}", goto = goto, bg = color::Bg(&**bg), fg = fg, text = trimmed_line, reset_fg = reset_fg, resetb = color::Bg(color::Reset));
+          let bg_color = if self.alt_background_color.is_some() {
+            let bg = if index % 2 == 0 { &self.background_color } else { self.alt_background_color.as_ref().unwrap() };
+            Some(&**bg)
           } else {
-            print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = trimmed_line, reset_fg = reset_fg);
-          }
+            None
+          };
+          
+          let final_line = style_ansi_line(&trimmed_line, self.faint, bg_color);
+          print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = final_line, reset_fg = reset_fg);
         } else {
           // NORMAL ROW: Pad to w-1 (or wrap_w)
-          if let Some(ref alt_bg) = self.alt_background_color {
-            let bg = if index % 2 == 0 { &self.background_color } else { alt_bg };
+          let bg_color = if self.alt_background_color.is_some() {
+            let bg = if index % 2 == 0 { &self.background_color } else { self.alt_background_color.as_ref().unwrap() };
+            Some(&**bg)
+          } else {
+            None
+          };
+          
+          let final_line = if bg_color.is_some() {
             let line_vis_width = state::visual_width(line);
             let wrap_w = if w > 1 { w - 1 } else { w };
             let padding_len = if line_vis_width < wrap_w { wrap_w - line_vis_width } else { 0 };
             let padded = format!("{}{}", line, " ".repeat(padding_len));
-            print!("{goto}{bg}{fg}{text}{reset_fg}{resetb}", goto = goto, bg = color::Bg(&**bg), fg = fg, text = padded, reset_fg = reset_fg, resetb = color::Bg(color::Reset));
+            style_ansi_line(&padded, self.faint, bg_color)
           } else {
-            print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = line, reset_fg = reset_fg);
-          }
+            style_ansi_line(line, self.faint, None)
+          };
+          
+          print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = final_line, reset_fg = reset_fg);
         }
       }
     }
@@ -461,4 +475,41 @@ mod tests {
     assert_eq!(slice_line_to_width("\tmodified", 12), "\tmodi");
     assert_eq!(slice_line_to_width("a\tmodified", 12), "a\tmodi");
   }
+}
+
+fn style_ansi_line(s: &str, faint: bool, bg_color: Option<&dyn color::Color>) -> String {
+  if s.is_empty() && !faint && bg_color.is_none() {
+    return s.to_string();
+  }
+  
+  let mut prefix = String::new();
+  let mut restore = String::new();
+  let mut suffix = String::new();
+  
+  if faint {
+    prefix.push_str("\x1b[2m");
+    restore.push_str("\x1b[2m");
+    suffix.push_str("\x1b[22m");
+  }
+  
+  if let Some(bg) = bg_color {
+    let bg_seq = format!("{}", color::Bg(bg));
+    prefix.push_str(&bg_seq);
+    restore.push_str(&bg_seq);
+    suffix.push_str(format!("{}", color::Bg(color::Reset)).as_str());
+  }
+  
+  if prefix.is_empty() {
+    return s.to_string();
+  }
+  
+  let mut result = String::new();
+  result.push_str(&prefix);
+  
+  let s = s.replace("\x1b[0m", &format!("\x1b[0m{}", restore));
+  let s = s.replace("\x1b[m", &format!("\x1b[m{}", restore));
+  
+  result.push_str(&s);
+  result.push_str(&suffix);
+  result
 }

@@ -100,6 +100,7 @@ NOTE: for changes to take effect, you'll need to source again your `.tmux.conf` 
 * [@thumbs-bg-color](#thumbs-bg-color)
 * [@thumbs-alt-bg-color](#thumbs-alt-bg-color)
 * [@thumbs-dim-color](#thumbs-dim-color)
+* [@thumbs-faint](#thumbs-faint)
 * [@thumbs-fg-color](#thumbs-fg-color)
 * [@thumbs-hint-bg-color](#thumbs-hint-bg-color)
 * [@thumbs-hint-fg-color](#thumbs-hint-fg-color)
@@ -273,6 +274,20 @@ For example:
 
 ```
 set -g @thumbs-dim-color "#4c566a"
+```
+
+### @thumbs-faint
+
+`default: 0`
+
+Enables faint dimming mode. When set to `1`, it dims all non-matched background text using the ANSI faint attribute (`\x1b[2m`). This preserves all your original terminal colors (like folder colors, git branch colors, etc.) but dims them slightly so that matches and hints stand out.
+
+To use this effectively with your original colors, you should also set `@thumbs-bg-color` to `"default"` and ensure `@thumbs-dim-color` is not set.
+
+For example:
+
+```
+set -g @thumbs-faint 1
 ```
 
 ### @thumbs-fg-color
@@ -480,6 +495,7 @@ USAGE:
 
 FLAGS:
     -c, --contrast    Put square brackets around hint for visibility
+        --faint       Dim background text using faint attribute (keeps colors)
     -h, --help        Prints help information
     -m, --multi       Enable multi-selection
     -r, --reverse     Reverse the order for assigned hints

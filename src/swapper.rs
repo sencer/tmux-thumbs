@@ -200,7 +200,7 @@ impl<'a> Swapper<'a> {
           "upcase-command" => self.upcase_command = value,
           "multi-command" => self.multi_command = value,
           "osc52" => self.osc52 = value == "1" || value == "true",
-          "reverse" | "unique" | "contrast" => {
+          "reverse" | "unique" | "contrast" | "faint" => {
             if value == "1" || value == "true" {
               args.push(format!("--{}", name));
             }
@@ -229,6 +229,7 @@ impl<'a> Swapper<'a> {
       "-t".to_string(),
       active_pane_id.to_string(),
       "-p".to_string(),
+      "-e".to_string(),
     ];
     
     if let (Some(pane_height), Some(scroll_position)) = (self.active_pane_height, self.active_pane_scroll_position) {

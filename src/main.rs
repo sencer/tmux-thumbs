@@ -144,6 +144,12 @@ fn app_args() -> clap::ArgMatches {
         .action(ArgAction::SetTrue),
     )
     .arg(
+      Arg::new("faint")
+        .help("Dim background text using faint attribute (keeps colors)")
+        .long("faint")
+        .action(ArgAction::SetTrue),
+    )
+    .arg(
       Arg::new("target")
         .help("Stores the hint in the specified path")
         .long("target")
@@ -182,6 +188,7 @@ fn main() {
   let reverse = args.get_flag("reverse");
   let unique = args.get_flag("unique");
   let contrast = args.get_flag("contrast");
+  let faint = args.get_flag("faint");
   let regexp = if let Some(items) = args.get_many::<String>("regexp") {
     items.map(|s| s.as_str()).collect::<Vec<_>>()
   } else {
@@ -222,6 +229,7 @@ fn main() {
       reverse,
       unique,
       contrast,
+      faint,
       position,
       select_foreground_color,
       select_background_color,
