@@ -560,7 +560,7 @@ mod tests {
 
 fn app_args() -> clap::ArgMatches {
   Command::new("tmux-thumbs")
-    .version("0.8.0")
+    .version(env!("CARGO_PKG_VERSION"))
     .about("A lightning fast version of tmux-fingers, copy/pasting tmux like vimium/vimperator")
     .arg(
       Arg::new("dir")

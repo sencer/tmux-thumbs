@@ -25,7 +25,7 @@ fn dbg(msg: &str) {
 
 fn app_args() -> clap::ArgMatches {
   Command::new("thumbs")
-    .version("0.8.0")
+    .version(env!("CARGO_PKG_VERSION"))
     .about("A lightning fast version copy/pasting like vimium/vimperator")
     .arg(
       Arg::new("alphabet")
