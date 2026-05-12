@@ -1,5 +1,4 @@
 use clap::{Command, Arg, ArgAction};
-use regex::Regex;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,6 +50,25 @@ fn dbg(msg: &str) {
   writeln!(&mut file, "{}", msg).expect("Unable to write log file");
 }
 
+fn parse_option_line(line: &str) -> Option<(String, String)> {
+  if !line.starts_with("@thumbs-") {
+    return None;
+  }
+  let line = line.trim();
+  if let Some(space_idx) = line.find(|c: char| c.is_whitespace()) {
+    let name = &line["@thumbs-".len()..space_idx];
+    let mut value = line[space_idx..].trim().to_string();
+
+    if (value.starts_with('"') && value.ends_with('"')) || (value.starts_with('\'') && value.ends_with('\'')) {
+      value.remove(0);
+      value.pop();
+      value = value.replace("\\\"", "\"").replace("\\\\", "\\");
+    }
+    return Some((name.to_string(), value));
+  }
+  None
+}
+
 pub struct Swapper<'a> {
   executor: Box<&'a mut dyn Executor>,
   dir: String,
@@ -98,6 +116,36 @@ impl<'a> Swapper<'a> {
     }
   }
 
+  fn read_options(&mut self) -> String {
+    #[cfg(not(test))]
+    {
+      let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| {
+          let output = std::process::Command::new("id")
+            .args(&["-un"])
+            .output();
+          match output {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            Err(_) => "".to_string(),
+          }
+        });
+
+      let file_path = format!("/tmp/thumbs-options-{}.txt", user);
+
+      if !user.is_empty() {
+        if let Ok(content) = std::fs::read_to_string(&file_path) {
+          return content;
+        }
+      }
+    }
+
+    // Fallback to tmux show -g (always used in tests for hermeticity)
+    let options_command = vec!["tmux", "show", "-g"];
+    let params: Vec<String> = options_command.iter().map(|arg| arg.to_string()).collect();
+    self.executor.execute(params)
+  }
+
   pub fn capture_active_pane(&mut self) {
     let active_command = vec![
       "tmux",
@@ -140,55 +188,37 @@ impl<'a> Swapper<'a> {
   }
 
   pub fn execute_thumbs(&mut self) {
-    let options_command = vec!["tmux", "show", "-g"];
-    let params: Vec<String> = options_command.iter().map(|arg| arg.to_string()).collect();
-    let options = self.executor.execute(params);
+    let options = self.read_options();
     let lines: Vec<&str> = options.split('\n').collect();
 
-    let pattern = Regex::new(r#"^@thumbs-([\w\-0-9]+)\s+"?([^"]+)"?$"#).unwrap();
+    let mut args = Vec::new();
 
-    let args = lines
-      .iter()
-      .flat_map(|line| {
-        if let Some(captures) = pattern.captures(line) {
-          let name = captures.get(1).unwrap().as_str();
-          let value = captures.get(2).unwrap().as_str();
-
-          let boolean_params = vec!["reverse", "unique", "contrast"];
-
-          if boolean_params.iter().any(|&x| x == name) {
-            return vec![format!("--{}", name)];
+    for line in lines {
+      if let Some((name, value)) = parse_option_line(line) {
+        match name.as_str() {
+          "command" => self.command = value,
+          "upcase-command" => self.upcase_command = value,
+          "multi-command" => self.multi_command = value,
+          "osc52" => self.osc52 = value == "1" || value == "true",
+          "reverse" | "unique" | "contrast" => {
+            if value == "1" || value == "true" {
+              args.push(format!("--{}", name));
+            }
           }
-
-          let string_params = vec![
-            "alphabet",
-            "position",
-            "fg-color",
-            "bg-color",
-            "alt-bg-color",
-            "dim-color",
-            "hint-bg-color",
-            "hint-fg-color",
-            "select-fg-color",
-            "select-bg-color",
-            "multi-fg-color",
-            "multi-bg-color",
-          ];
-
-          if string_params.iter().any(|&x| x == name) {
-            return vec![format!("--{}", name), format!("'{}'", value)];
+          "alphabet" | "position" | "fg-color" | "bg-color" | "alt-bg-color" | "dim-color" |
+          "hint-bg-color" | "hint-fg-color" | "select-fg-color" | "select-bg-color" |
+          "multi-fg-color" | "multi-bg-color" => {
+            args.push(format!("--{}", name));
+            args.push(format!("'{}'", value));
           }
-
-          if name.starts_with("regexp") {
-            return vec!["--regexp".to_string(), format!("'{}'", value.replace("\\\\", "\\"))];
+          _ if name.starts_with("regexp") => {
+            args.push("--regexp".to_string());
+            args.push(format!("'{}'", value.replace("\\\\", "\\")));
           }
-
-          vec![]
-        } else {
-          vec![]
+          _ => {}
         }
-      })
-      .collect::<Vec<String>>();
+      }
+    }
 
     let active_pane_id = self.active_pane_id.as_mut().unwrap().clone();
     let height = self.active_pane_height.unwrap_or(i32::MAX);
@@ -555,6 +585,30 @@ mod tests {
     ];
 
     assert_eq!(executor.last_executed().unwrap(), expectation);
+  }
+
+  #[test]
+  fn test_parse_option_line() {
+    assert_eq!(
+      parse_option_line(r#"@thumbs-command "tmux set-buffer -w {}""#),
+      Some(("command".to_string(), "tmux set-buffer -w {}".to_string()))
+    );
+    assert_eq!(
+      parse_option_line(r#"@thumbs-upcase-command "\~/.dotfiles/tmux/run-tmux-fingers \"{}\"""#),
+      Some(("upcase-command".to_string(), r#"\~/.dotfiles/tmux/run-tmux-fingers "{}""#.to_string()))
+    );
+    assert_eq!(
+      parse_option_line(r#"@thumbs-unique 1"#),
+      Some(("unique".to_string(), "1".to_string()))
+    );
+    assert_eq!(
+      parse_option_line(r#"@thumbs-regexp-1 "[0-9]+""#),
+      Some(("regexp-1".to_string(), "[0-9]+".to_string()))
+    );
+    assert_eq!(
+      parse_option_line(r#"not-a-thumbs-option value"#),
+      None
+    );
   }
 }
 

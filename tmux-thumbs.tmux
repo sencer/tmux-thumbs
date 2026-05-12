@@ -1,13 +1,31 @@
 #!/usr/bin/env bash
 
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+RELEASE_DIR="${CURRENT_DIR}/target/release"
+THUMBS_BINARY="${RELEASE_DIR}/thumbs"
+VERSION=$(grep 'version =' "${CURRENT_DIR}/Cargo.toml" | grep -o "\".*\"" | sed 's/"//g')
 
+# 1. Version and existence check (once on startup/reload)
+if [ ! -f "$THUMBS_BINARY" ]; then
+  tmux split-window "cd ${CURRENT_DIR} && bash ./tmux-thumbs-install.sh"
+  exit
+elif [[ $(${THUMBS_BINARY} --version) != "thumbs ${VERSION}"  ]]; then
+  tmux split-window "cd ${CURRENT_DIR} && bash ./tmux-thumbs-install.sh update"
+  exit
+fi
+
+# 2. Cache options to file
+USER_NAME=${USER:-$(id -un)}
+tmux show -g | grep '@thumbs-' > "/tmp/thumbs-options-${USER_NAME}.txt" || true
+
+# 3. Bind key directly to Rust binary
 DEFAULT_THUMBS_KEY=space
 
 THUMBS_KEY="$(tmux show-option -gqv @thumbs-key)"
 THUMBS_KEY=${THUMBS_KEY:-$DEFAULT_THUMBS_KEY}
 
-tmux set-option -ag command-alias "thumbs-pick=run-shell -b ${CURRENT_DIR}/tmux-thumbs.sh"
+# Define alias to run the Rust binary directly
+tmux set-option -ag command-alias "thumbs-pick=run-shell -b ${CURRENT_DIR}/target/release/tmux-thumbs --dir ${CURRENT_DIR}"
 
 NO_PREFIX="$(tmux show-option -gqv @thumbs-no-prefix)"
 
