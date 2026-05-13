@@ -145,65 +145,72 @@ impl<'a> State<'a> {
       .chain(COMPILED_PATTERNS.iter().map(|(name, re)| (*name, re.clone())))
       .collect();
 
-    // 2. Run regexes on self.J
-    let mut chunk: &str = &self.J;
-    let mut J_offset: usize = 0;
+    struct RawMatch<'a> {
+      start: usize,
+      end: usize,
+      pattern_name: &'a str,
+      pattern: Regex,
+      text: &'a str,
+      priority: usize,
+    }
 
-    loop {
-      let submatches = all_patterns
-        .iter()
-        .filter_map(|tuple| match tuple.1.find_iter(chunk).nth(0) {
-          Some(m) => Some((tuple.0, tuple.1.clone(), m)),
-          None => None,
-        })
-        .collect::<Vec<_>>();
+    let mut raw_matches = Vec::new();
+    for (priority, (name, pattern)) in all_patterns.iter().enumerate() {
+      for m in pattern.find_iter(&self.J) {
+        raw_matches.push(RawMatch {
+          start: m.start(),
+          end: m.end(),
+          pattern_name: name,
+          pattern: pattern.clone(),
+          text: m.as_str(),
+          priority,
+        });
+      }
+    }
 
-      let first_match_option = submatches.iter().min_by(|x, y| x.2.start().cmp(&y.2.start()));
+    raw_matches.sort_by(|a, b| {
+      a.start.cmp(&b.start).then(a.priority.cmp(&b.priority))
+    });
 
-      if let Some(first_match) = first_match_option {
-        let (name, pattern, matching) = first_match;
-        let text = matching.as_str();
+    let mut last_end = 0;
+    for rm in raw_matches {
+      if rm.start < last_end {
+        continue;
+      }
 
-        if let Some(captures) = pattern.captures(text) {
-          let captures: Vec<(&str, usize)> = if let Some(capture) = captures.name("match") {
-            [(capture.as_str(), capture.start())].to_vec()
-          } else if captures.len() > 1 {
-            captures
-              .iter()
-              .skip(1)
-              .filter_map(|capture| capture)
-              .map(|capture| (capture.as_str(), capture.start()))
-              .collect::<Vec<(&str, usize)>>()
-          } else {
-            [(matching.as_str(), 0)].to_vec()
-          };
+      if let Some(captures) = rm.pattern.captures(rm.text) {
+        let captures: Vec<(&str, usize)> = if let Some(capture) = captures.name("match") {
+          [(capture.as_str(), capture.start())].to_vec()
+        } else if captures.len() > 1 {
+          captures
+            .iter()
+            .skip(1)
+            .filter_map(|capture| capture)
+            .map(|capture| (capture.as_str(), capture.start()))
+            .collect::<Vec<(&str, usize)>>()
+        } else {
+          [(rm.text, 0)].to_vec()
+        };
 
-          if *name != "bash" {
-            for (subtext, substart) in captures.iter() {
-              let J_match_start = J_offset + matching.start() + *substart;
-              
-              if J_match_start < self.map.len() {
-                let (v_line, v_char) = self.map[J_match_start];
-                
-                matches.push(Match {
-                  x: v_char,
-                  y: v_line,
-                  pattern: name,
-                  text: subtext,
-                  hint: None,
-                });
-              }
+        if rm.pattern_name != "bash" {
+          for (subtext, substart) in captures.iter() {
+            let J_match_start = rm.start + *substart;
+
+            if J_match_start < self.map.len() {
+              let (v_line, v_char) = self.map[J_match_start];
+
+              matches.push(Match {
+                x: v_char,
+                y: v_line,
+                pattern: rm.pattern_name,
+                text: subtext,
+                hint: None,
+              });
             }
           }
-
-          let match_end = matching.end();
-          chunk = chunk.get(match_end..).expect("Unknown chunk");
-          J_offset += match_end;
-        } else {
-          panic!("No matching?");
         }
-      } else {
-        break;
+
+        last_end = rm.end;
       }
     }
 
