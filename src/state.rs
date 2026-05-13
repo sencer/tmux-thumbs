@@ -82,6 +82,7 @@ impl<'a> PartialEq for Match<'a> {
 
 pub struct State<'a> {
   pub lines: &'a Vec<&'a str>,
+  pub line_widths: Vec<usize>,
   pub J: String,
   pub map: Vec<(i32, i32)>,
   alphabet: &'a str,
@@ -90,19 +91,27 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
   pub fn new(lines: &'a Vec<&'a str>, alphabet: &'a str, regexp: &'a Vec<&'a str>) -> State<'a> {
-    let mut J = String::new();
-    let mut map = Vec::new();
+    let total_bytes: usize = lines.iter().map(|l| l.len()).sum();
+    let mut J = String::with_capacity(total_bytes + lines.len());
+    let mut map = Vec::with_capacity(total_bytes + lines.len());
     
-    let usable_width = lines.iter().map(|l| visual_width(l)).max().unwrap_or(0);
+    let line_widths: Vec<usize> = lines.iter().map(|l| visual_width(l)).collect();
+    let usable_width = line_widths.iter().max().cloned().unwrap_or(0);
 
     for (v_line_index, v_line) in lines.iter().enumerate() {
-      let is_wrapped = usable_width > 0 && visual_width(v_line) >= usable_width && v_line_index < lines.len() - 1;
+      let is_wrapped = usable_width > 0 && line_widths[v_line_index] >= usable_width && v_line_index < lines.len() - 1;
       
       let ansi_spans = ANSI_RE.find_iter(v_line).map(|m| (m.start(), m.end())).collect::<Vec<_>>();
       
       let mut char_count = 0;
+      let mut active_span_idx = 0;
+
       for (byte_index, ch) in v_line.char_indices() {
-        let in_ansi = ansi_spans.iter().any(|(start, end)| byte_index >= *start && byte_index < *end);
+        while active_span_idx < ansi_spans.len() && byte_index >= ansi_spans[active_span_idx].1 {
+          active_span_idx += 1;
+        }
+
+        let in_ansi = active_span_idx < ansi_spans.len() && byte_index >= ansi_spans[active_span_idx].0;
         
         if !in_ansi {
           let bytes = ch.len_utf8();
@@ -122,6 +131,7 @@ impl<'a> State<'a> {
 
     State {
       lines,
+      line_widths,
       J,
       map,
       alphabet,
