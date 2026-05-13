@@ -25,7 +25,7 @@ THUMBS_KEY="$(tmux show-option -gqv @thumbs-key)"
 THUMBS_KEY=${THUMBS_KEY:-$DEFAULT_THUMBS_KEY}
 
 # Define alias to run the Rust binary directly
-tmux set-option -ag command-alias "thumbs-pick=run-shell -b ${CURRENT_DIR}/target/release/tmux-thumbs --dir ${CURRENT_DIR}"
+tmux set-option -ag command-alias "thumbs-pick=run-shell -b \"${CURRENT_DIR}/target/release/tmux-thumbs --dir ${CURRENT_DIR}\""
 
 NO_PREFIX="$(tmux show-option -gqv @thumbs-no-prefix)"
 
