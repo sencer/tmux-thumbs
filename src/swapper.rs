@@ -243,25 +243,24 @@ impl<'a> Swapper<'a> {
     let captured_text = self.executor.execute(params);
 
     // 2. Trim trailing spaces and empty lines, and tail to height in Rust
-    let captured_lines: Vec<&str> = captured_text.split('\n').collect();
-    let mut trimmed_lines: Vec<String> = captured_lines
-      .into_iter()
-      .map(|line| line.trim_end_matches(|c: char| c == ' ' || c == '\t').to_string())
+    let mut captured_lines: Vec<&str> = captured_text
+      .split('\n')
+      .map(|line| line.trim_end_matches(|c: char| c == ' ' || c == '\t'))
       .collect();
 
-    while let Some(last_line) = trimmed_lines.last() {
-      if last_line.trim().is_empty() {
-        trimmed_lines.pop();
+    while let Some(last_line) = captured_lines.last() {
+      if last_line.is_empty() {
+        captured_lines.pop();
       } else {
         break;
       }
     }
 
-    let tail_len = std::cmp::min(height as usize, trimmed_lines.len());
-    let visible_lines = if trimmed_lines.is_empty() {
+    let tail_len = std::cmp::min(height as usize, captured_lines.len());
+    let visible_lines = if captured_lines.is_empty() {
       &[]
     } else {
-      &trimmed_lines[trimmed_lines.len() - tail_len..]
+      &captured_lines[captured_lines.len() - tail_len..]
     };
     let final_text = visible_lines.join("\n");
 
