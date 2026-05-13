@@ -5,6 +5,14 @@ use std::fmt;
 
 lazy_static! {
   static ref ANSI_RE: Regex = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+  static ref COMPILED_EXCLUDE_PATTERNS: Vec<(&'static str, Regex)> = EXCLUDE_PATTERNS
+    .iter()
+    .map(|tuple| (tuple.0, Regex::new(tuple.1).unwrap()))
+    .collect();
+  static ref COMPILED_PATTERNS: Vec<(&'static str, Regex)> = PATTERNS
+    .iter()
+    .map(|tuple| (tuple.0, Regex::new(tuple.1).unwrap()))
+    .collect();
 }
 
 pub fn visual_width(s: &str) -> usize {
@@ -124,23 +132,18 @@ impl<'a> State<'a> {
   pub fn matches(&'a self, reverse: bool, unique: bool) -> Vec<Match<'a>> {
     let mut matches = Vec::new();
 
-    let exclude_patterns = EXCLUDE_PATTERNS
-      .iter()
-      .map(|tuple| (tuple.0, Regex::new(tuple.1).unwrap()))
-      .collect::<Vec<_>>();
-
     let custom_patterns = self
       .regexp
       .iter()
       .map(|regexp| ("custom", Regex::new(regexp).expect("Invalid custom regexp")))
       .collect::<Vec<_>>();
 
-    let patterns = PATTERNS
+    let all_patterns: Vec<(&str, Regex)> = COMPILED_EXCLUDE_PATTERNS
       .iter()
-      .map(|tuple| (tuple.0, Regex::new(tuple.1).unwrap()))
-      .collect::<Vec<_>>();
-
-    let all_patterns = [exclude_patterns, custom_patterns, patterns].concat();
+      .map(|(name, re)| (*name, re.clone()))
+      .chain(custom_patterns.into_iter())
+      .chain(COMPILED_PATTERNS.iter().map(|(name, re)| (*name, re.clone())))
+      .collect();
 
     // 2. Run regexes on self.J
     let mut chunk: &str = &self.J;
