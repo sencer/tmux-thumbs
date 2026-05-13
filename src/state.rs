@@ -289,7 +289,7 @@ mod tests {
 
   #[test]
   fn match_bash() {
-    let lines = split("path: \u{1b}[32m/var/log/nginx.log\u{1b}[m\npath: \u{1b}[32mtest/log/nginx-2.log:32\u{1b}[mfolder/.nginx@4df2.log");
+    let lines = split("path: \u{1b}[32m/var/log/nginx.log\u{1b}[m\npath: \u{1b}[32mtest/log/nginx-2.log:32\u{1b}[m folder/.nginx@4df2.log");
     let custom = [].to_vec();
     let state = State::new(&lines, "abcd", &custom);
     let results = state.matches(false, false);
@@ -521,7 +521,6 @@ mod tests {
     assert_eq!(results.get(0).unwrap().text.clone(), "samples/test1");
     assert_eq!(results.get(1).unwrap().text.clone(), "samples/test2");
   }
-
   #[test]
   fn priority() {
     let lines = split("Lorem [link](http://foo.bar) ipsum CUSTOM-52463 lorem ISSUE-123 lorem\nLorem /var/fd70b569/9999.log 52463 lorem\n Lorem 973113 lorem 123e4567-e89b-12d3-a456-426655440000 lorem 8888 lorem\n  https://crates.io/23456/fd70b569 lorem");
@@ -554,20 +553,4 @@ mod tests {
     assert_eq!(visual_width("a\t"), 8);
   }
 
-  #[test]
-  fn test_debug_user_log() {
-    let log_content = std::fs::read_to_string("/usr/local/google/home/sselcuk/tmux.log").unwrap();
-    let lines = log_content.split('\n').collect::<Vec<&str>>();
-    let regexp = vec![
-      "(?:Change|CL) [0-9]{8,}",
-      r"\~?/?/?(?:[\w\d_.*\${}]+(?:[=\-][\w\d_.*]+)*/)+(?:[\w\d_.*\${}]+(?:[?@=\-][\w\d_.*\${}]*)*)?",
-      r"([\w\d]+\.(pdf|jpg|png))",
-    ];
-    let state = State::new(&lines, "qwerty", &regexp);
-    let results = state.matches(true, true);
-    println!("MATCHES COUNT: {}", results.len());
-    for m in results {
-      println!("HINT: {:?} -> TEXT: {:?}", m.hint, m.text);
-    }
-  }
 }

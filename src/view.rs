@@ -444,6 +444,7 @@ mod tests {
       skip: 0,
       multi: false,
       contrast: false,
+      faint: false,
       position: &"",
       matches: vec![],
       select_foreground_color: colors::get_color("default"),
