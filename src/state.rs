@@ -55,6 +55,7 @@ const PATTERNS: [(&'static str, &'static str); 15] = [
 pub struct Match<'a> {
   pub x: i32,
   pub y: i32,
+  pub visual_x: usize,
   pub pattern: &'a str,
   pub text: &'a str,
   pub hint: Option<String>,
@@ -64,9 +65,10 @@ impl<'a> fmt::Debug for Match<'a> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(
       f,
-      "Match {{ x: {}, y: {}, pattern: {}, text: {}, hint: <{}> }}",
+      "Match {{ x: {}, y: {}, visual_x: {}, pattern: {}, text: {}, hint: <{}> }}",
       self.x,
       self.y,
+      self.visual_x,
       self.pattern,
       self.text,
       self.hint.clone().unwrap_or("<undefined>".to_string())
@@ -208,10 +210,14 @@ impl<'a> State<'a> {
 
             if J_match_start < self.map.len() {
               let (v_line, v_char) = self.map[J_match_start];
+              let line = self.lines[v_line as usize];
+              let prefix: String = line.chars().take(v_char as usize).collect();
+              let visual_x = visual_width(&prefix);
 
               matches.push(Match {
                 x: v_char,
                 y: v_line,
+                visual_x,
                 pattern: rm.pattern_name,
                 text: subtext,
                 hint: None,

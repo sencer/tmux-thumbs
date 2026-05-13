@@ -128,7 +128,7 @@ impl<'a> View<'a> {
 
         if r == h - 1 {
           // BOTTOM ROW: Print text as-is, trimmed to w-1, with NO trailing padding!
-          let line_vis_width = state::visual_width(line);
+          let line_vis_width = self.state.line_widths[index];
           let wrap_w = if w > 1 { w - 1 } else { w };
           
           let trimmed_line = if line_vis_width > wrap_w {
@@ -156,7 +156,7 @@ impl<'a> View<'a> {
           };
           
           let final_line = if bg_color.is_some() {
-            let line_vis_width = state::visual_width(line);
+            let line_vis_width = self.state.line_widths[index];
             let wrap_w = if w > 1 { w - 1 } else { w };
             let padding_len = if line_vis_width < wrap_w { wrap_w - line_vis_width } else { 0 };
             let padded = format!("{}{}", line, " ".repeat(padding_len));
@@ -190,10 +190,7 @@ impl<'a> View<'a> {
         &self.background_color
       };
 
-      let line = &self.state.lines[mat.y as usize];
-      let prefix: String = line.chars().take(mat.x as usize).collect();
-      
-      let visual_offset = state::visual_width(&prefix);
+      let visual_offset = mat.visual_x;
       
       let screen_x = visual_offset;
       let screen_y = mat.y as usize;
