@@ -6,12 +6,21 @@ THUMBS_BINARY="${RELEASE_DIR}/thumbs"
 VERSION=$(grep 'version =' "${CURRENT_DIR}/Cargo.toml" | grep -o "\".*\"" | sed 's/"//g')
 
 # 1. Version and existence check (once on startup/reload)
+prompt_update() {
+  local mode="$1"
+  local cmd="cd ${CURRENT_DIR} && bash ./tmux-thumbs-install.sh ${mode} && tmux run-shell ${CURRENT_DIR}/tmux-thumbs.tmux"
+  if tmux list-clients &>/dev/null; then
+    tmux split-window "${cmd}"
+  else
+    tmux set-hook -g client-session-changed "split-window '${cmd}'; set-hook -ug client-session-changed"
+  fi
+  exit
+}
+
 if [ ! -f "$THUMBS_BINARY" ]; then
-  tmux split-window "cd ${CURRENT_DIR} && bash ./tmux-thumbs-install.sh"
-  exit
+  prompt_update "install"
 elif [[ $(${THUMBS_BINARY} --version) != "thumbs ${VERSION}"  ]]; then
-  tmux split-window "cd ${CURRENT_DIR} && bash ./tmux-thumbs-install.sh update"
-  exit
+  prompt_update "update"
 fi
 
 # 2. Cache options to file
