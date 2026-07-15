@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "thumbs"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "base64",
  "clap",
