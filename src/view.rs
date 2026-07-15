@@ -9,7 +9,6 @@ use termion::screen::IntoAlternateScreen;
 use termion::{color, cursor};
 
 use unicode_width::UnicodeWidthStr;
-use unicode_width::UnicodeWidthChar;
 
 pub struct View<'a> {
   state: &'a state::State<'a>,

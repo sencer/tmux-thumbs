@@ -1,5 +1,4 @@
 use regex::Regex;
-use unicode_width::UnicodeWidthStr;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -85,7 +84,7 @@ impl<'a> PartialEq for Match<'a> {
 pub struct State<'a> {
   pub lines: &'a Vec<&'a str>,
   pub line_widths: Vec<usize>,
-  pub J: String,
+  pub j: String,
   pub map: Vec<(i32, i32)>,
   alphabet: &'a str,
   regexp: &'a Vec<&'a str>,
@@ -94,7 +93,7 @@ pub struct State<'a> {
 impl<'a> State<'a> {
   pub fn new(lines: &'a Vec<&'a str>, alphabet: &'a str, regexp: &'a Vec<&'a str>) -> State<'a> {
     let total_bytes: usize = lines.iter().map(|l| l.len()).sum();
-    let mut J = String::with_capacity(total_bytes + lines.len());
+    let mut j = String::with_capacity(total_bytes + lines.len());
     let mut map = Vec::with_capacity(total_bytes + lines.len());
     
     let line_widths: Vec<usize> = lines.iter().map(|l| visual_width(l)).collect();
@@ -120,13 +119,13 @@ impl<'a> State<'a> {
           for _ in 0..bytes {
             map.push((v_line_index as i32, char_count as i32));
           }
-          J.push(ch);
+          j.push(ch);
         }
         char_count += 1;
       }
       
       if !is_wrapped {
-        J.push('\n');
+        j.push('\n');
         map.push((v_line_index as i32, v_line.chars().count() as i32));
       }
     }
@@ -134,7 +133,7 @@ impl<'a> State<'a> {
     State {
       lines,
       line_widths,
-      J,
+      j,
       map,
       alphabet,
       regexp,
@@ -168,7 +167,7 @@ impl<'a> State<'a> {
 
     let mut raw_matches = Vec::new();
     for (priority, (name, pattern)) in all_patterns.iter().enumerate() {
-      for m in pattern.find_iter(&self.J) {
+      for m in pattern.find_iter(&self.j) {
         raw_matches.push(RawMatch {
           start: m.start(),
           end: m.end(),
@@ -206,10 +205,10 @@ impl<'a> State<'a> {
 
         if rm.pattern_name != "bash" {
           for (subtext, substart) in captures.iter() {
-            let J_match_start = rm.start + *substart;
+            let j_match_start = rm.start + *substart;
 
-            if J_match_start < self.map.len() {
-              let (v_line, v_char) = self.map[J_match_start];
+            if j_match_start < self.map.len() {
+              let (v_line, v_char) = self.map[j_match_start];
               let line = self.lines[v_line as usize];
               let prefix: String = line.chars().take(v_char as usize).collect();
               let visual_x = visual_width(&prefix);

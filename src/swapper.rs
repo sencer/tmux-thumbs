@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 trait Executor {
   fn execute(&mut self, args: Vec<String>) -> String;
+  #[allow(dead_code)]
   fn last_executed(&self) -> Option<Vec<String>>;
 }
 
@@ -93,7 +94,7 @@ impl<'a> Swapper<'a> {
     upcase_command: String,
     multi_command: String,
     osc52: bool,
-  ) -> Swapper {
+  ) -> Swapper<'a> {
     let since_the_epoch = SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .expect("Time went backwards");
