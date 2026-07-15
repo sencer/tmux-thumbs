@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 lazy_static! {
-  static ref ANSI_RE: Regex = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+  static ref ANSI_RE: Regex = Regex::new(r"(\x1b|\\033|\\e)\[[0-9;:?]*[a-zA-Z]").unwrap();
   static ref COMPILED_EXCLUDE_PATTERNS: Vec<(&'static str, Regex)> = EXCLUDE_PATTERNS
     .iter()
     .map(|tuple| (tuple.0, Regex::new(tuple.1).unwrap()))
@@ -46,7 +46,7 @@ const PATTERNS: [(&'static str, &'static str); 15] = [
   ("ipfs", r"Qm[0-9a-zA-Z]{44}"),
   ("sha", r"[0-9a-f]{7,40}"),
   ("ip", r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"),
-  ("ipv6", r"[A-f0-9:]+:+[A-f0-9:]+[%\w\d]+"),
+  ("ipv6", r"[a-fA-F0-9:]+:+[a-fA-F0-9:]+[%\w\d]+"),
   ("address", r"0x[0-9a-fA-F]+"),
   ("number", r"[0-9]{4,}"),
 ];
