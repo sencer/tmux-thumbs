@@ -147,12 +147,12 @@ impl<'a> Swapper<'a> {
     self.executor.execute(params)
   }
 
-  pub fn capture_active_pane(&mut self) {
+  pub fn capture_active_pane(&mut self) -> bool {
     let active_command = vec![
       "tmux",
       "display-message",
       "-p",
-      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:active",
+      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:#{@thumbs-active}:#{pane_current_command}",
     ];
 
     let output = self
@@ -160,6 +160,13 @@ impl<'a> Swapper<'a> {
       .execute(active_command.iter().map(|arg| arg.to_string()).collect());
 
     let chunks: Vec<&str> = output.split(':').collect();
+
+    let is_thumbs_active = chunks.get(5).copied().unwrap_or("");
+    let pane_cmd = chunks.get(6).copied().unwrap_or("");
+
+    if is_thumbs_active == "1" || pane_cmd == "thumbs" || pane_cmd == "tmux-thumbs" {
+      return false;
+    }
 
     let pane_id = chunks.get(0).unwrap();
 
@@ -186,6 +193,7 @@ impl<'a> Swapper<'a> {
     let zoomed_pane = *chunks.get(4).expect("Unable to retrieve zoom pane property") == "1";
 
     self.active_pane_zoomed = Some(zoomed_pane);
+    true
   }
 
   pub fn execute_thumbs(&mut self) {
@@ -299,7 +307,21 @@ impl<'a> Swapper<'a> {
 
     let params: Vec<String> = thumbs_command.iter().map(|arg| arg.to_string()).collect();
 
-    self.thumbs_pane_id = Some(self.executor.execute(params));
+    let thumbs_pane = self.executor.execute(params);
+    let thumbs_pane_id = thumbs_pane.trim().to_string();
+
+    let mark_active_cmd = vec![
+      "tmux".to_string(),
+      "set-option".to_string(),
+      "-p".to_string(),
+      "-t".to_string(),
+      thumbs_pane_id.clone(),
+      "@thumbs-active".to_string(),
+      "1".to_string(),
+    ];
+    self.executor.execute(mark_active_cmd);
+
+    self.thumbs_pane_id = Some(thumbs_pane_id);
   }
 
   pub fn swap_panes(&mut self) {
@@ -504,8 +526,25 @@ mod tests {
   }
 
   #[test]
+  fn prevent_nested_execution_in_thumbs_pane() {
+    let last_command_outputs = vec!["%97:0:24::0:1:thumbs".to_string()];
+    let mut executor = TestShell::new(last_command_outputs);
+    let mut swapper = Swapper::new(
+      Box::new(&mut executor),
+      "".to_string(),
+      "".to_string(),
+      "".to_string(),
+      "".to_string(),
+      false,
+    );
+
+    assert_eq!(swapper.capture_active_pane(), false);
+    assert_eq!(swapper.active_pane_id, None);
+  }
+
+  #[test]
   fn retrieve_active_pane() {
-    let last_command_outputs = vec!["%97:0:24::0:active".to_string()];
+    let last_command_outputs = vec!["%97:0:24::0::active".to_string()];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
       Box::new(&mut executor),
@@ -525,10 +564,11 @@ mod tests {
   fn swap_panes() {
     let last_command_outputs = vec![
       "".to_string(),
+      "".to_string(),
       "%100".to_string(),
       "/tmp/some_path\n".to_string(),
       "".to_string(),
-      "%98:0:24::0:active".to_string(),
+      "%98:0:24::0::active".to_string(),
     ];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
@@ -681,7 +721,9 @@ fn main() -> std::io::Result<()> {
     osc52,
   );
 
-  swapper.capture_active_pane();
+  if !swapper.capture_active_pane() {
+    return Ok(());
+  }
   swapper.execute_thumbs();
   swapper.swap_panes();
   swapper.resize_pane();
