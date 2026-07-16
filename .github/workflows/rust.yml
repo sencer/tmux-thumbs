@@ -21,7 +21,7 @@ jobs:
         version: 0.18.0
         use-tool-cache: true
 
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Format
       run: cargo fmt --all -- --check
@@ -45,12 +45,12 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Build
       run: cargo build --release
 
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v4
       with:
         name: thumbs-macos.zip
         path: ./target/release/thumbs
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run:  |
@@ -70,7 +70,7 @@ jobs:
     - name: Build
       run: cargo build --release
 
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v4
       with:
         name: thumbs-linux.zip
         path: ./target/release/thumbs
