@@ -520,7 +520,7 @@ mod tests {
 
   #[test]
   fn prevent_nested_execution_in_thumbs_pane() {
-    let last_command_outputs = vec!["%97:0:24::0:1:thumbs".to_string()];
+    let last_command_outputs = vec!["%97:0:24::0:1:thumbs:@0".to_string()];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
       Box::new(&mut executor),
@@ -537,7 +537,7 @@ mod tests {
 
   #[test]
   fn retrieve_active_pane() {
-    let last_command_outputs = vec!["%97:0:24::0::active".to_string()];
+    let last_command_outputs = vec!["%97:0:24::0::active:@0".to_string()];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
       Box::new(&mut executor),
@@ -561,7 +561,7 @@ mod tests {
       "%100".to_string(),
       "/tmp/some_path\n".to_string(),
       "".to_string(),
-      "%98:0:24::0::active".to_string(),
+      "%98:0:24::0::active:@0".to_string(),
     ];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
