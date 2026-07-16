@@ -1,4 +1,4 @@
-use clap::{Command, Arg, ArgAction};
+use clap::{Arg, ArgAction, Command};
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -125,9 +125,7 @@ impl<'a> Swapper<'a> {
       let user = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| {
-          let output = std::process::Command::new("id")
-            .args(&["-un"])
-            .output();
+          let output = std::process::Command::new("id").args(&["-un"]).output();
           match output {
             Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
             Err(_) => "".to_string(),
@@ -174,20 +172,12 @@ impl<'a> Swapper<'a> {
 
     self.active_pane_id = Some(pane_id.to_string());
 
-    let pane_height = chunks
-      .get(2)
-      .unwrap()
-      .parse()
-      .expect("Unable to retrieve pane height");
+    let pane_height = chunks.get(2).unwrap().parse().expect("Unable to retrieve pane height");
 
     self.active_pane_height = Some(pane_height);
 
     if chunks.get(1).unwrap().to_string() == "1" {
-      let pane_scroll_position = chunks
-        .get(3)
-        .unwrap()
-        .parse()
-        .expect("Unable to retrieve pane scroll");
+      let pane_scroll_position = chunks.get(3).unwrap().parse().expect("Unable to retrieve pane scroll");
 
       self.active_pane_scroll_position = Some(pane_scroll_position);
     }
@@ -220,9 +210,8 @@ impl<'a> Swapper<'a> {
               args.push(format!("--{}", name));
             }
           }
-          "alphabet" | "position" | "fg-color" | "bg-color" | "alt-bg-color" | "dim-color" |
-          "hint-bg-color" | "hint-fg-color" | "select-fg-color" | "select-bg-color" |
-          "multi-fg-color" | "multi-bg-color" => {
+          "alphabet" | "position" | "fg-color" | "bg-color" | "alt-bg-color" | "dim-color" | "hint-bg-color"
+          | "hint-fg-color" | "select-fg-color" | "select-bg-color" | "multi-fg-color" | "multi-bg-color" => {
             args.push(format!("--{}", name));
             args.push(format!("'{}'", value));
           }
@@ -246,7 +235,7 @@ impl<'a> Swapper<'a> {
       "-p".to_string(),
       "-e".to_string(),
     ];
-    
+
     if let (Some(pane_height), Some(scroll_position)) = (self.active_pane_height, self.active_pane_scroll_position) {
       capture_args.push("-S".to_string());
       capture_args.push(format!("{}", -scroll_position));
@@ -644,7 +633,10 @@ mod tests {
     );
     assert_eq!(
       parse_option_line(r#"@thumbs-upcase-command "\~/.dotfiles/tmux/run-tmux-fingers \"{}\"""#),
-      Some(("upcase-command".to_string(), r#"~/.dotfiles/tmux/run-tmux-fingers "{}""#.to_string()))
+      Some((
+        "upcase-command".to_string(),
+        r#"~/.dotfiles/tmux/run-tmux-fingers "{}""#.to_string()
+      ))
     );
     assert_eq!(
       parse_option_line(r#"@thumbs-unique 1"#),
@@ -654,10 +646,7 @@ mod tests {
       parse_option_line(r#"@thumbs-regexp-1 "[0-9]+""#),
       Some(("regexp-1".to_string(), "[0-9]+".to_string()))
     );
-    assert_eq!(
-      parse_option_line(r#"not-a-thumbs-option value"#),
-      None
-    );
+    assert_eq!(parse_option_line(r#"not-a-thumbs-option value"#), None);
   }
 }
 

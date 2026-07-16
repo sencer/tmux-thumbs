@@ -120,7 +120,10 @@ impl<'a> View<'a> {
 
       if !clean.is_empty() || self.alt_background_color.is_some() {
         let (fg, reset_fg) = if let Some(ref dim_fg) = self.dim_color {
-          (format!("{}", color::Fg(&**dim_fg)), format!("{}", color::Fg(color::Reset)))
+          (
+            format!("{}", color::Fg(&**dim_fg)),
+            format!("{}", color::Fg(color::Reset)),
+          )
         } else {
           ("".to_string(), "".to_string())
         };
@@ -129,42 +132,66 @@ impl<'a> View<'a> {
           // BOTTOM ROW: Print text as-is, trimmed to w-1, with NO trailing padding!
           let line_vis_width = self.state.line_widths[index];
           let wrap_w = if w > 1 { w - 1 } else { w };
-          
+
           let trimmed_line = if line_vis_width > wrap_w {
             slice_line_to_width(line, wrap_w)
           } else {
             line.to_string()
           };
-          
+
           let bg_color = if self.alt_background_color.is_some() {
-            let bg = if index % 2 == 0 { &self.background_color } else { self.alt_background_color.as_ref().unwrap() };
+            let bg = if index % 2 == 0 {
+              &self.background_color
+            } else {
+              self.alt_background_color.as_ref().unwrap()
+            };
             Some(&**bg)
           } else {
             None
           };
-          
+
           let final_line = style_ansi_line(&trimmed_line, self.faint, bg_color);
-          print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = final_line, reset_fg = reset_fg);
+          print!(
+            "{goto}{fg}{text}{reset_fg}",
+            goto = goto,
+            fg = fg,
+            text = final_line,
+            reset_fg = reset_fg
+          );
         } else {
           // NORMAL ROW: Pad to w-1 (or wrap_w)
           let bg_color = if self.alt_background_color.is_some() {
-            let bg = if index % 2 == 0 { &self.background_color } else { self.alt_background_color.as_ref().unwrap() };
+            let bg = if index % 2 == 0 {
+              &self.background_color
+            } else {
+              self.alt_background_color.as_ref().unwrap()
+            };
             Some(&**bg)
           } else {
             None
           };
-          
+
           let final_line = if bg_color.is_some() {
             let line_vis_width = self.state.line_widths[index];
             let wrap_w = if w > 1 { w - 1 } else { w };
-            let padding_len = if line_vis_width < wrap_w { wrap_w - line_vis_width } else { 0 };
+            let padding_len = if line_vis_width < wrap_w {
+              wrap_w - line_vis_width
+            } else {
+              0
+            };
             let padded = format!("{}{}", line, " ".repeat(padding_len));
             style_ansi_line(&padded, self.faint, bg_color)
           } else {
             style_ansi_line(line, self.faint, None)
           };
-          
-          print!("{goto}{fg}{text}{reset_fg}", goto = goto, fg = fg, text = final_line, reset_fg = reset_fg);
+
+          print!(
+            "{goto}{fg}{text}{reset_fg}",
+            goto = goto,
+            fg = fg,
+            text = final_line,
+            reset_fg = reset_fg
+          );
         }
       }
     }
@@ -190,7 +217,7 @@ impl<'a> View<'a> {
       };
 
       let visual_offset = mat.visual_x;
-      
+
       let screen_x = visual_offset;
       let screen_y = mat.y as usize;
 
@@ -395,7 +422,7 @@ fn slice_line_to_width(line: &str, max_w: usize) -> String {
   let mut sliced = String::new();
   let mut current_width = 0;
   let mut in_escape = false;
-  
+
   for ch in line.chars() {
     if in_escape {
       sliced.push(ch);
@@ -404,19 +431,19 @@ fn slice_line_to_width(line: &str, max_w: usize) -> String {
       }
       continue;
     }
-    
+
     if ch == '\x1b' {
       in_escape = true;
       sliced.push(ch);
       continue;
     }
-    
+
     let ch_width = if ch == '\t' {
       8 - (current_width % 8)
     } else {
       unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
     };
-    
+
     if current_width + ch_width > max_w {
       break;
     }
@@ -521,34 +548,34 @@ fn style_ansi_line(s: &str, faint: bool, bg_color: Option<&dyn color::Color>) ->
   if s.is_empty() && !faint && bg_color.is_none() {
     return s.to_string();
   }
-  
+
   let mut prefix = String::new();
   let mut restore = String::new();
   let mut suffix = String::new();
-  
+
   if faint {
     prefix.push_str("\x1b[2m");
     restore.push_str("\x1b[2m");
     suffix.push_str("\x1b[22m");
   }
-  
+
   if let Some(bg) = bg_color {
     let bg_seq = format!("{}", color::Bg(bg));
     prefix.push_str(&bg_seq);
     restore.push_str(&bg_seq);
     suffix.push_str(format!("{}", color::Bg(color::Reset)).as_str());
   }
-  
+
   if prefix.is_empty() {
     return s.to_string();
   }
-  
+
   let mut result = String::new();
   result.push_str(&prefix);
-  
+
   let s = s.replace("\x1b[0m", &format!("\x1b[0m{}", restore));
   let s = s.replace("\x1b[m", &format!("\x1b[m{}", restore));
-  
+
   result.push_str(&s);
   result.push_str(&suffix);
   result

@@ -31,7 +31,10 @@ const EXCLUDE_PATTERNS: [(&'static str, &'static str); 0] = [];
 
 const PATTERNS: [(&'static str, &'static str); 15] = [
   ("markdown_url", r"\[[^]]*\]\(([^)]+)\)"),
-  ("url", r"(?P<match>(https?://|git@|git://|ssh://|ftp://|file:///)[^ \n]+)"),
+  (
+    "url",
+    r"(?P<match>(https?://|git@|git://|ssh://|ftp://|file:///)[^ \n]+)",
+  ),
   (
     "diff_summary",
     r"diff --git a/([.\w\-@~\[\]]+?/[.\w\-@\[\]]++) b/([.\w\-@~\[\]]+?/[.\w\-@\[\]]++)",
@@ -95,15 +98,18 @@ impl<'a> State<'a> {
     let total_bytes: usize = lines.iter().map(|l| l.len()).sum();
     let mut j = String::with_capacity(total_bytes + lines.len());
     let mut map = Vec::with_capacity(total_bytes + lines.len());
-    
+
     let line_widths: Vec<usize> = lines.iter().map(|l| visual_width(l)).collect();
     let usable_width = line_widths.iter().max().cloned().unwrap_or(0);
 
     for (v_line_index, v_line) in lines.iter().enumerate() {
       let is_wrapped = usable_width > 0 && line_widths[v_line_index] >= usable_width && v_line_index < lines.len() - 1;
-      
-      let ansi_spans = ANSI_RE.find_iter(v_line).map(|m| (m.start(), m.end())).collect::<Vec<_>>();
-      
+
+      let ansi_spans = ANSI_RE
+        .find_iter(v_line)
+        .map(|m| (m.start(), m.end()))
+        .collect::<Vec<_>>();
+
       let mut char_count = 0;
       let mut active_span_idx = 0;
 
@@ -113,7 +119,7 @@ impl<'a> State<'a> {
         }
 
         let in_ansi = active_span_idx < ansi_spans.len() && byte_index >= ansi_spans[active_span_idx].0;
-        
+
         if !in_ansi {
           let bytes = ch.len_utf8();
           for _ in 0..bytes {
@@ -123,7 +129,7 @@ impl<'a> State<'a> {
         }
         char_count += 1;
       }
-      
+
       if !is_wrapped {
         j.push('\n');
         map.push((v_line_index as i32, v_line.chars().count() as i32));
@@ -179,9 +185,7 @@ impl<'a> State<'a> {
       }
     }
 
-    raw_matches.sort_by(|a, b| {
-      a.start.cmp(&b.start).then(a.priority.cmp(&b.priority))
-    });
+    raw_matches.sort_by(|a, b| a.start.cmp(&b.start).then(a.priority.cmp(&b.priority)));
 
     let mut last_end = 0;
     for rm in raw_matches {
@@ -577,5 +581,4 @@ mod tests {
     assert_eq!(visual_width("\t\x1b[31mmodified:\x1b[m    "), 21);
     assert_eq!(visual_width("a\t"), 8);
   }
-
 }

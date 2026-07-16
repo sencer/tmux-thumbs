@@ -9,7 +9,7 @@ mod colors;
 mod state;
 mod view;
 
-use clap::{Command, Arg, ArgAction};
+use clap::{Arg, ArgAction, Command};
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 
@@ -197,8 +197,12 @@ fn main() {
 
   let foreground_color = colors::get_color(args.get_one::<String>("foreground_color").unwrap());
   let background_color = colors::get_color(args.get_one::<String>("background_color").unwrap());
-  let alt_background_color = args.get_one::<String>("alt_background_color").map(|c| colors::get_color(c.as_str()));
-  let dim_color = args.get_one::<String>("dim_color").map(|c| colors::get_color(c.as_str()));
+  let alt_background_color = args
+    .get_one::<String>("alt_background_color")
+    .map(|c| colors::get_color(c.as_str()));
+  let dim_color = args
+    .get_one::<String>("dim_color")
+    .map(|c| colors::get_color(c.as_str()));
   let hint_foreground_color = colors::get_color(args.get_one::<String>("hint_foreground_color").unwrap());
   let hint_background_color = colors::get_color(args.get_one::<String>("hint_background_color").unwrap());
   let select_foreground_color = colors::get_color(args.get_one::<String>("select_foreground_color").unwrap());
