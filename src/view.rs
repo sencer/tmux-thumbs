@@ -264,10 +264,14 @@ impl<'a> View<'a> {
     let longest_hint = self
       .matches
       .iter()
-      .filter_map(|m| m.hint.clone())
+      .filter_map(|m| m.hint.as_ref())
       .max_by(|x, y| x.len().cmp(&y.len()))
-      .unwrap()
-      .clone();
+      .cloned()
+      .unwrap_or_default();
+
+    if longest_hint.is_empty() {
+      return CaptureEvent::Exit;
+    }
 
     self.render(stdout, &typed_hint);
 
@@ -471,6 +475,45 @@ mod tests {
     assert_eq!(slice_line_to_width("hello \x1b[31mworld\x1b[m", 8), "hello \x1b[31mwo");
     assert_eq!(slice_line_to_width("\tmodified", 12), "\tmodi");
     assert_eq!(slice_line_to_width("a\tmodified", 12), "a\tmodi");
+  }
+
+  #[test]
+  fn test_listen_with_none_hints() {
+    let lines = split("lorem 127.0.0.1 lorem");
+    let custom = [].to_vec();
+    let state = state::State::new(&lines, "abcd", &custom);
+    let mut view = View {
+      state: &state,
+      skip: 0,
+      multi: false,
+      contrast: false,
+      faint: false,
+      position: &"",
+      matches: vec![state::Match {
+        x: 0,
+        y: 0,
+        visual_x: 0,
+        pattern: "test",
+        text: "lorem",
+        hint: None,
+      }],
+      select_foreground_color: colors::get_color("default"),
+      select_background_color: colors::get_color("default"),
+      multi_foreground_color: colors::get_color("default"),
+      multi_background_color: colors::get_color("default"),
+      foreground_color: colors::get_color("default"),
+      background_color: colors::get_color("default"),
+      alt_background_color: None,
+      dim_color: None,
+      hint_background_color: colors::get_color("default"),
+      hint_foreground_color: colors::get_color("default"),
+      chosen: vec![],
+    };
+
+    let mut stdin = std::io::empty();
+    let mut stdout = Vec::new();
+    let result = view.listen(&mut stdin, &mut stdout);
+    assert!(matches!(result, CaptureEvent::Exit));
   }
 }
 
