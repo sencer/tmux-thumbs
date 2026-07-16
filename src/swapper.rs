@@ -484,7 +484,7 @@ impl<'a> Swapper<'a> {
     let retrieve_command = vec![
       "bash",
       "-c",
-      "THUMB=\"$1\"; eval \"$2\"",
+      "export THUMB=\"$1\"; eval \"$2\"",
       "--",
       text,
       final_command.as_str(),
@@ -618,7 +618,7 @@ mod tests {
       "bash",
       // The actual shell command:
       "-c",
-      "THUMB=\"$1\"; eval \"$2\"",
+      "export THUMB=\"$1\"; eval \"$2\"",
       // $0: The non-existent program name.
       "--",
       // $1: The value assigned to THUMB above.
