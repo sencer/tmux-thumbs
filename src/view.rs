@@ -1,7 +1,6 @@
 use super::*;
 use std::char;
 use std::io::{stdout, Read, Write};
-use termion::async_stdin;
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
@@ -114,7 +113,8 @@ impl<'a> View<'a> {
   }
 
   fn render(&self, stdout: &mut dyn Write, typed_hint: &str) -> () {
-    write!(stdout, "{}", cursor::Hide).unwrap();
+    let mut buf: Vec<u8> = Vec::with_capacity(16384);
+    write!(buf, "{}", cursor::Hide).unwrap();
 
     let (width, height) = termion::terminal_size().unwrap_or((80, 24));
     let w = if width == 0 { 80 } else { width as usize };
@@ -159,13 +159,15 @@ impl<'a> View<'a> {
         };
 
         let final_line = style_ansi_line(&trimmed_line, self.faint, bg_color);
-        print!(
+        write!(
+          buf,
           "{goto}{fg}{text}{reset_fg}",
           goto = goto,
           fg = fg,
           text = final_line,
           reset_fg = reset_fg
-        );
+        )
+        .unwrap();
       }
     }
 
@@ -208,7 +210,8 @@ impl<'a> View<'a> {
         } else {
           text
         };
-        print!(
+        write!(
+          buf,
           "{goto}{background}{foregroud}{text}{resetf}{resetb}",
           goto = cursor::Goto(screen_x as u16 + 1, screen_y as u16 + 1),
           foregroud = color::Fg(&**selected_color),
@@ -216,7 +219,8 @@ impl<'a> View<'a> {
           resetf = color::Fg(color::Reset),
           resetb = color::Bg(color::Reset),
           text = &clamped_text
-        );
+        )
+        .unwrap();
       } else {
         // Multi-row wrapped match: render row-by-row without scrolling past bottom row h
         let mut remaining = text.as_str();
@@ -231,7 +235,8 @@ impl<'a> View<'a> {
           if chunk.is_empty() {
             break;
           }
-          print!(
+          write!(
+            buf,
             "{goto}{background}{foregroud}{text}{resetf}{resetb}",
             goto = cursor::Goto(cur_x as u16 + 1, cur_y as u16 + 1),
             foregroud = color::Fg(&**selected_color),
@@ -239,7 +244,8 @@ impl<'a> View<'a> {
             resetf = color::Fg(color::Reset),
             resetb = color::Bg(color::Reset),
             text = &chunk
-          );
+          )
+          .unwrap();
           remaining = &remaining[chunk.len()..];
           cur_x = 0;
           cur_y += 1;
@@ -286,7 +292,8 @@ impl<'a> View<'a> {
         last_hint_row = Some(hint_screen_y);
         last_hint_end_x = hint_screen_x + hint_width as usize;
 
-        print!(
+        write!(
+          buf,
           "{goto}{background}{foregroud}{text}{resetf}{resetb}",
           goto = cursor::Goto(hint_screen_x as u16 + 1, hint_screen_y as u16 + 1),
           foregroud = color::Fg(&*self.hint_foreground_color),
@@ -294,13 +301,15 @@ impl<'a> View<'a> {
           resetf = color::Fg(color::Reset),
           resetb = color::Bg(color::Reset),
           text = &hint_text
-        );
+        )
+        .unwrap();
 
         if !typed_hint.is_empty() && hint.starts_with(typed_hint) {
           let typed_x = hint_screen_x + if self.contrast { 1 } else { 0 };
           if typed_x < w {
             let clamped_typed = slice_line_to_width(typed_hint, w - typed_x);
-            print!(
+            write!(
+              buf,
               "{goto}{background}{foregroud}{text}{resetf}{resetb}",
               goto = cursor::Goto(typed_x as u16 + 1, hint_screen_y as u16 + 1),
               foregroud = color::Fg(&*self.multi_foreground_color),
@@ -308,12 +317,14 @@ impl<'a> View<'a> {
               resetf = color::Fg(color::Reset),
               resetb = color::Bg(color::Reset),
               text = &clamped_typed
-            );
+            )
+            .unwrap();
           }
         }
       }
     }
 
+    stdout.write_all(&buf).unwrap();
     stdout.flush().unwrap();
   }
 
@@ -337,103 +348,91 @@ impl<'a> View<'a> {
 
     self.render(stdout, &typed_hint);
 
-    loop {
-      match stdin.keys().next() {
-        Some(key) => {
+    let mut keys = stdin.keys();
+    while let Some(key) = keys.next() {
+      match key {
+        Ok(key) => {
           match key {
-            Ok(key) => {
-              match key {
-                Key::Esc => {
-                  if self.multi && !typed_hint.is_empty() {
-                    typed_hint.clear();
+            Key::Esc => {
+              if self.multi && !typed_hint.is_empty() {
+                typed_hint.clear();
+              } else {
+                break;
+              }
+            }
+            Key::Up => {
+              self.prev();
+            }
+            Key::Down => {
+              self.next();
+            }
+            Key::Left => {
+              self.prev();
+            }
+            Key::Right => {
+              self.next();
+            }
+            Key::Backspace => {
+              typed_hint.pop();
+            }
+            Key::Char(ch) => {
+              match ch {
+                '\n' => match self.matches.get(self.skip).map(|m| m.text) {
+                  Some(text) => {
+                    self.toggle_or_choose(text, false);
+
+                    if !self.multi {
+                      return CaptureEvent::Hint;
+                    }
+                  }
+                  _ => panic!("Match not found?"),
+                },
+                ' ' => {
+                  if self.multi {
+                    // Finalize the multi selection
+                    return CaptureEvent::Hint;
                   } else {
-                    break;
+                    // Enable the multi selection
+                    self.multi = true;
                   }
                 }
-                Key::Up => {
-                  self.prev();
-                }
-                Key::Down => {
-                  self.next();
-                }
-                Key::Left => {
-                  self.prev();
-                }
-                Key::Right => {
-                  self.next();
-                }
-                Key::Backspace => {
-                  typed_hint.pop();
-                }
-                Key::Char(ch) => {
-                  match ch {
-                    '\n' => match self.matches.get(self.skip).map(|m| m.text) {
-                      Some(text) => {
-                        self.toggle_or_choose(text, false);
+                key => {
+                  let key = key.to_string();
+                  let lower_key = key.to_lowercase();
 
-                        if !self.multi {
-                          return CaptureEvent::Hint;
-                        }
-                      }
-                      _ => panic!("Match not found?"),
-                    },
-                    ' ' => {
+                  typed_hint.push_str(lower_key.as_str());
+
+                  let selection = self
+                    .matches
+                    .iter()
+                    .find(|mat| mat.hint.as_deref() == Some(typed_hint.as_str()))
+                    .map(|mat| mat.text);
+
+                  match selection {
+                    Some(text) => {
+                      self.toggle_or_choose(text, key != lower_key);
+
                       if self.multi {
-                        // Finalize the multi selection
-                        return CaptureEvent::Hint;
+                        typed_hint.clear();
                       } else {
-                        // Enable the multi selection
-                        self.multi = true;
+                        return CaptureEvent::Hint;
                       }
                     }
-                    key => {
-                      let key = key.to_string();
-                      let lower_key = key.to_lowercase();
-
-                      typed_hint.push_str(lower_key.as_str());
-
-                      let selection = self
-                        .matches
-                        .iter()
-                        .find(|mat| mat.hint.as_deref() == Some(typed_hint.as_str()))
-                        .map(|mat| mat.text);
-
-                      match selection {
-                        Some(text) => {
-                          self.toggle_or_choose(text, key != lower_key);
-
-                          if self.multi {
-                            typed_hint.clear();
-                          } else {
-                            return CaptureEvent::Hint;
-                          }
-                        }
-                        None => {
-                          if !self.multi && typed_hint.len() >= longest_hint.len() {
-                            break;
-                          }
-                        }
+                    None => {
+                      if !self.multi && typed_hint.len() >= longest_hint.len() {
+                        break;
                       }
                     }
                   }
-                }
-                _ => {
-                  // Unknown key
                 }
               }
             }
-            Err(err) => panic!("{}", err),
+            _ => {
+              // Unknown key
+            }
           }
-
-          stdin.keys().for_each(|_| { /* Skip the rest of stdin buffer */ })
         }
-        _ => {
-          if !termion::is_tty(&std::io::stdin()) {
-            break;
-          }
-          std::thread::sleep(std::time::Duration::from_millis(50));
-          continue; // don't render again if nothing new to show
-        }
+        Err(err) => panic!("{}", err),
       }
 
       self.render(stdout, &typed_hint);
@@ -443,7 +442,7 @@ impl<'a> View<'a> {
   }
 
   pub fn present(&mut self) -> Vec<(String, bool)> {
-    let mut stdin = async_stdin();
+    let mut stdin = termion::get_tty().unwrap();
     let mut stdout = stdout().into_raw_mode().unwrap().into_alternate_screen().unwrap();
 
     let hints = match self.listen(&mut stdin, &mut stdout) {
@@ -655,6 +654,46 @@ mod tests {
     assert_eq!(view.chosen.len(), 1);
     view.toggle_or_choose("item1", false);
     assert_eq!(view.chosen.len(), 0);
+  }
+
+  #[test]
+  fn test_fast_two_char_hint_and_buffered_render() {
+    let lines = split("127.0.0.1 127.0.0.2 127.0.0.3 127.0.0.4 127.0.0.5");
+    let custom = [].to_vec();
+    let state = state::State::new(&lines, "abcd", &custom);
+    let mut view = View::new(
+      &state,
+      false,
+      false,
+      false,
+      false,
+      false,
+      "left",
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      None,
+      None,
+      colors::get_color("default"),
+      colors::get_color("default"),
+    );
+
+    // With alphabet "abcd" and 5 matches, hints are ["a", "b", "c", "da", "db"].
+    // Sending both characters "db" in a single buffer tests that no keystrokes are dropped between iterations.
+    let mut stdin = "db".as_bytes();
+    let mut stdout = Vec::new();
+    let result = view.listen(&mut stdin, &mut stdout);
+    assert!(!stdout.is_empty());
+    match result {
+      CaptureEvent::Hint => {
+        assert_eq!(view.chosen.len(), 1);
+        assert_eq!(view.chosen[0].0, "127.0.0.5");
+      }
+      CaptureEvent::Exit => panic!("Expected Hint, got Exit"),
+    }
   }
 }
 
