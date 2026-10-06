@@ -57,7 +57,7 @@ impl<'a> View<'a> {
     hint_background_color: Box<dyn color::Color>,
   ) -> View<'a> {
     let matches = state.matches(reverse, unique);
-    let skip = if reverse { matches.len() - 1 } else { 0 };
+    let skip = if reverse { matches.len().saturating_sub(1) } else { 0 };
 
     View {
       state,
@@ -88,7 +88,7 @@ impl<'a> View<'a> {
   }
 
   pub fn next(&mut self) {
-    if self.skip < self.matches.len() - 1 {
+    if self.skip < self.matches.len().saturating_sub(1) {
       self.skip += 1;
     }
   }
@@ -98,6 +98,18 @@ impl<'a> View<'a> {
       format!("[{}]", hint)
     } else {
       hint.to_string()
+    }
+  }
+
+  fn toggle_or_choose(&mut self, text: &str, upcase: bool) {
+    if self.multi {
+      if let Some(pos) = self.chosen.iter().position(|(t, _)| t == text) {
+        self.chosen.remove(pos);
+      } else {
+        self.chosen.push((text.to_string(), upcase));
+      }
+    } else {
+      self.chosen.push((text.to_string(), upcase));
     }
   }
 
@@ -159,6 +171,7 @@ impl<'a> View<'a> {
 
     let selected = self.matches.get(self.skip);
 
+    // Pass 1: Render match texts
     for mat in self.matches.iter() {
       let chosen_hint = self.chosen.iter().any(|(hint, _)| hint == mat.text);
 
@@ -177,44 +190,101 @@ impl<'a> View<'a> {
         &self.background_color
       };
 
-      let visual_offset = mat.visual_x;
-
-      let screen_x = visual_offset;
+      let screen_x = mat.visual_x;
       let screen_y = mat.y as usize;
 
-      if screen_y >= h {
+      if screen_y >= h || screen_x >= w {
         continue;
       }
 
       let text = self.make_hint_text(mat.text);
+      let max_row_width = w - screen_x;
+      let raw_width = mat.text.width();
 
-      print!(
-        "{goto}{background}{foregroud}{text}{resetf}{resetb}",
-        goto = cursor::Goto(screen_x as u16 + 1, screen_y as u16 + 1),
-        foregroud = color::Fg(&**selected_color),
-        background = color::Bg(&**selected_background_color),
-        resetf = color::Fg(color::Reset),
-        resetb = color::Bg(color::Reset),
-        text = &text
-      );
+      if screen_x + raw_width <= w {
+        // Single-row match: clamp to remaining row width so contrast brackets never wrap
+        let clamped_text = if text.width() > max_row_width {
+          slice_line_to_width(&text, max_row_width)
+        } else {
+          text
+        };
+        print!(
+          "{goto}{background}{foregroud}{text}{resetf}{resetb}",
+          goto = cursor::Goto(screen_x as u16 + 1, screen_y as u16 + 1),
+          foregroud = color::Fg(&**selected_color),
+          background = color::Bg(&**selected_background_color),
+          resetf = color::Fg(color::Reset),
+          resetb = color::Bg(color::Reset),
+          text = &clamped_text
+        );
+      } else {
+        // Multi-row wrapped match: render row-by-row without scrolling past bottom row h
+        let mut remaining = text.as_str();
+        let mut cur_x = screen_x;
+        let mut cur_y = screen_y;
+        while !remaining.is_empty() && cur_y < h {
+          let avail = w.saturating_sub(cur_x);
+          if avail == 0 {
+            break;
+          }
+          let chunk = slice_line_to_width(remaining, avail);
+          if chunk.is_empty() {
+            break;
+          }
+          print!(
+            "{goto}{background}{foregroud}{text}{resetf}{resetb}",
+            goto = cursor::Goto(cur_x as u16 + 1, cur_y as u16 + 1),
+            foregroud = color::Fg(&**selected_color),
+            background = color::Bg(&**selected_background_color),
+            resetf = color::Fg(color::Reset),
+            resetb = color::Bg(color::Reset),
+            text = &chunk
+          );
+          remaining = &remaining[chunk.len()..];
+          cur_x = 0;
+          cur_y += 1;
+        }
+      }
+    }
 
+    // Pass 2: Render hints on top of match texts
+    let mut last_hint_row: Option<usize> = None;
+    let mut last_hint_end_x: usize = 0;
+
+    for mat in self.matches.iter() {
       if let Some(ref hint) = mat.hint {
+        let visual_offset = mat.visual_x;
+        let hint_screen_y = mat.y as usize;
+
+        if hint_screen_y >= h || visual_offset >= w {
+          continue;
+        }
+
+        let match_text = self.make_hint_text(mat.text);
+        let hint_text = self.make_hint_text(hint.as_str());
+        let match_width = match_text.width() as i16;
+        let hint_width = hint_text.width() as i16;
+
         let extra_position: i16 = match self.position {
-          "right" => text.width_cjk() as i16 - hint.len() as i16,
-          "off_left" => 0 - hint.len() as i16 - if self.contrast { 2 } else { 0 },
-          "off_right" => text.width_cjk() as i16,
+          "right" => match_width - hint_width,
+          "off_left" => -hint_width,
+          "off_right" => match_width,
           _ => 0,
         };
 
-        let text = self.make_hint_text(hint.as_str());
-        let final_position = std::cmp::max(visual_offset as i16 + extra_position, 0) as usize;
-
-        let hint_screen_x = final_position;
-        let hint_screen_y = mat.y as usize;
-
-        if hint_screen_y >= h {
-          continue;
+        let max_x = w.saturating_sub(hint_width as usize);
+        let mut hint_screen_x = std::cmp::max(visual_offset as i16 + extra_position, 0) as usize;
+        if hint_screen_x > max_x {
+          hint_screen_x = max_x;
         }
+
+        // Prevent off_left hint from colliding with the previous hint on the same row
+        if self.position == "off_left" && last_hint_row == Some(hint_screen_y) && hint_screen_x < last_hint_end_x {
+          hint_screen_x = std::cmp::min(visual_offset, max_x);
+        }
+
+        last_hint_row = Some(hint_screen_y);
+        last_hint_end_x = hint_screen_x + hint_width as usize;
 
         print!(
           "{goto}{background}{foregroud}{text}{resetf}{resetb}",
@@ -223,19 +293,23 @@ impl<'a> View<'a> {
           background = color::Bg(&*self.hint_background_color),
           resetf = color::Fg(color::Reset),
           resetb = color::Bg(color::Reset),
-          text = &text
+          text = &hint_text
         );
 
-        if hint.starts_with(typed_hint) {
-          print!(
-            "{goto}{background}{foregroud}{text}{resetf}{resetb}",
-            goto = cursor::Goto(hint_screen_x as u16 + 1, hint_screen_y as u16 + 1),
-            foregroud = color::Fg(&*self.multi_foreground_color),
-            background = color::Bg(&*self.multi_background_color),
-            resetf = color::Fg(color::Reset),
-            resetb = color::Bg(color::Reset),
-            text = &typed_hint
-          );
+        if !typed_hint.is_empty() && hint.starts_with(typed_hint) {
+          let typed_x = hint_screen_x + if self.contrast { 1 } else { 0 };
+          if typed_x < w {
+            let clamped_typed = slice_line_to_width(typed_hint, w - typed_x);
+            print!(
+              "{goto}{background}{foregroud}{text}{resetf}{resetb}",
+              goto = cursor::Goto(typed_x as u16 + 1, hint_screen_y as u16 + 1),
+              foregroud = color::Fg(&*self.multi_foreground_color),
+              background = color::Bg(&*self.multi_background_color),
+              resetf = color::Fg(color::Reset),
+              resetb = color::Bg(color::Reset),
+              text = &clamped_typed
+            );
+          }
         }
       }
     }
@@ -293,9 +367,9 @@ impl<'a> View<'a> {
                 }
                 Key::Char(ch) => {
                   match ch {
-                    '\n' => match self.matches.iter().enumerate().find(|&h| h.0 == self.skip) {
-                      Some(hm) => {
-                        self.chosen.push((hm.1.text.to_string(), false));
+                    '\n' => match self.matches.get(self.skip).map(|m| m.text) {
+                      Some(text) => {
+                        self.toggle_or_choose(text, false);
 
                         if !self.multi {
                           return CaptureEvent::Hint;
@@ -318,11 +392,15 @@ impl<'a> View<'a> {
 
                       typed_hint.push_str(lower_key.as_str());
 
-                      let selection = self.matches.iter().find(|mat| mat.hint == Some(typed_hint.clone()));
+                      let selection = self
+                        .matches
+                        .iter()
+                        .find(|mat| mat.hint.as_deref() == Some(typed_hint.as_str()))
+                        .map(|mat| mat.text);
 
                       match selection {
-                        Some(mat) => {
-                          self.chosen.push((mat.text.to_string(), key != lower_key));
+                        Some(text) => {
+                          self.toggle_or_choose(text, key != lower_key);
 
                           if self.multi {
                             typed_hint.clear();
@@ -543,6 +621,40 @@ mod tests {
       style_ansi_line("a\tb", true, None),
       "\x1b[2ma       b\x1b[22m"
     );
+  }
+
+  #[test]
+  fn test_empty_reverse_and_multi_toggle() {
+    let lines = split("no matches here");
+    let custom = [].to_vec();
+    let state = state::State::new(&lines, "abcd", &custom);
+    let mut view = View::new(
+      &state,
+      true,
+      true,
+      false,
+      false,
+      false,
+      "left",
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      colors::get_color("default"),
+      None,
+      None,
+      colors::get_color("default"),
+      colors::get_color("default"),
+    );
+    assert_eq!(view.skip, 0);
+    view.next();
+    assert_eq!(view.skip, 0);
+
+    view.toggle_or_choose("item1", false);
+    assert_eq!(view.chosen.len(), 1);
+    view.toggle_or_choose("item1", false);
+    assert_eq!(view.chosen.len(), 0);
   }
 }
 
