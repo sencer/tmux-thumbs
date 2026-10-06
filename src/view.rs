@@ -695,6 +695,48 @@ mod tests {
       CaptureEvent::Exit => panic!("Expected Hint, got Exit"),
     }
   }
+
+  #[test]
+  fn test_render_vis_file() {
+    if let Ok(content) = std::fs::read_to_string("/usr/local/google/home/sselcuk/vis.txt") {
+      let lines = split(&content);
+      let custom = [].to_vec();
+      let state = state::State::new(&lines, "qwerty", &custom);
+      let mut view = View::new(
+        &state,
+        false,
+        false,
+        false,
+        false,
+        false,
+        "left",
+        colors::get_color("default"),
+        colors::get_color("default"),
+        colors::get_color("default"),
+        colors::get_color("default"),
+        colors::get_color("default"),
+        colors::get_color("default"),
+        None,
+        None,
+        colors::get_color("default"),
+        colors::get_color("default"),
+      );
+
+      let b828bec_match = view.matches.iter().find(|m| m.text == "b828bec");
+      assert!(b828bec_match.is_some(), "b828bec must be matched");
+      assert!(b828bec_match.unwrap().hint.is_some(), "b828bec must get a hint");
+
+      // Verify no phantom merged match like "eb828bec" exists
+      let phantom_match = view.matches.iter().find(|m| m.text == "eb828bec");
+      assert!(phantom_match.is_none(), "eb828bec should not be matched across line boundary");
+
+      let mut stdin = std::io::empty();
+      let mut stdout = Vec::new();
+      let result = view.listen(&mut stdin, &mut stdout);
+      assert!(matches!(result, CaptureEvent::Exit));
+      assert!(!stdout.is_empty());
+    }
+  }
 }
 
 fn style_ansi_line(s: &str, faint: bool, bg_color: Option<&dyn color::Color>) -> String {

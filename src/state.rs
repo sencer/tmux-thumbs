@@ -17,6 +17,7 @@ lazy_static! {
     .collect();
 }
 
+#[cfg(test)]
 pub fn visual_width(s: &str) -> usize {
   let mut width = 0;
   let mut last_end = 0;
@@ -27,6 +28,7 @@ pub fn visual_width(s: &str) -> usize {
   add_segment_width(&s[last_end..], width)
 }
 
+#[cfg(test)]
 fn add_segment_width(segment: &str, mut width: usize) -> usize {
   for (i, part) in segment.split('\t').enumerate() {
     if i > 0 {
@@ -111,10 +113,6 @@ impl<'a> State<'a> {
 
     struct LineMeta {
       ansi_spans: Vec<(usize, usize)>,
-      total_width: usize,
-      trimmed_width: usize,
-      ends_with_border: bool,
-      starts_with_space: bool,
     }
 
     let mut metas = Vec::with_capacity(lines.len());
@@ -123,18 +121,10 @@ impl<'a> State<'a> {
     for v_line in lines.iter() {
       let mut ansi_spans = Vec::new();
       let mut total_width = 0;
-      let mut trimmed_width = 0;
-      let mut ends_with_border = false;
-      let mut starts_with_space = false;
-      let mut seen_first_char = false;
 
       let mut process_segment = |segment: &str| {
         let mut iter = segment.char_indices().peekable();
         while let Some((byte_offset, ch)) = iter.next() {
-          if !seen_first_char {
-            seen_first_char = true;
-            starts_with_space = ch.is_whitespace();
-          }
           let ch_width = if ch == '\t' {
             8 - (total_width % 8)
           } else if let Some(&(_, '\u{fe0f}')) = iter.peek() {
@@ -145,10 +135,6 @@ impl<'a> State<'a> {
             unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
           };
           total_width += ch_width;
-          if !ch.is_whitespace() {
-            trimmed_width = total_width;
-            ends_with_border = ('\u{2500}'..='\u{257f}').contains(&ch);
-          }
         }
       };
 
@@ -161,25 +147,11 @@ impl<'a> State<'a> {
       process_segment(&v_line[last_end..]);
 
       line_widths.push(total_width);
-      metas.push(LineMeta {
-        ansi_spans,
-        total_width,
-        trimmed_width,
-        ends_with_border,
-        starts_with_space,
-      });
+      metas.push(LineMeta { ansi_spans });
     }
-
-    let usable_width = line_widths.iter().copied().max().unwrap_or(0);
 
     for (v_line_index, v_line) in lines.iter().enumerate() {
       let meta = &metas[v_line_index];
-      let is_wrapped = usable_width >= 80
-        && meta.total_width >= usable_width
-        && meta.trimmed_width >= usable_width
-        && !meta.ends_with_border
-        && v_line_index + 1 < lines.len()
-        && !metas[v_line_index + 1].starts_with_space;
 
       let mut char_count = 0;
       let mut visual_col = 0;
@@ -235,10 +207,8 @@ impl<'a> State<'a> {
       }
       push_text_segment(&v_line[last_end..], &mut char_count, &mut visual_col, &mut j, &mut map);
 
-      if !is_wrapped {
-        j.push('\n');
-        map.push((v_line_index as i32, char_count as i32, visual_col));
-      }
+      j.push('\n');
+      map.push((v_line_index as i32, char_count as i32, visual_col));
     }
 
     State {
@@ -755,5 +725,18 @@ mod tests {
     assert_eq!(results[0].y, 0);
     assert_eq!(results[1].text, "/var/log/syslog");
     assert_eq!(results[1].y, 1);
+  }
+
+  #[test]
+  fn test_no_line_join_across_boundaries() {
+    let lines = split("\x1b[33mca2628a\x1b[39m statusbar: format GCal countdown as 'm' with red negative minutes, send 5m urgent notifications, and dedupe by time range\n\x1b[33mb828bec\x1b[39m use softlink for bg image");
+    let custom = [].to_vec();
+    let state = State::new(&lines, "abcd", &custom);
+    let results = state.matches(false, false);
+
+    let texts: Vec<&str> = results.iter().map(|m| m.text).collect();
+    assert!(texts.contains(&"ca2628a"), "ca2628a should be matched");
+    assert!(texts.contains(&"b828bec"), "b828bec should be matched");
+    assert!(!texts.contains(&"eb828bec"), "eb828bec should not be matched across line boundary");
   }
 }
