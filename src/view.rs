@@ -612,14 +612,15 @@ mod tests {
     let bg_reset = format!("{}", color::Bg(color::Reset));
     assert_eq!(
       style_ansi_line("hello \x1b[44mblue\x1b[49m world", false, Some(&*bg)),
-      format!("{bg}hello \x1b[44mblue\x1b[49m{bg} world\x1b[K{reset}", bg = bg_seq, reset = bg_reset)
+      format!(
+        "{bg}hello \x1b[44mblue\x1b[49m{bg} world\x1b[K{reset}",
+        bg = bg_seq,
+        reset = bg_reset
+      )
     );
 
     // Tabs expand to 8-col tab stops
-    assert_eq!(
-      style_ansi_line("a\tb", true, None),
-      "\x1b[2ma       b\x1b[22m"
-    );
+    assert_eq!(style_ansi_line("a\tb", true, None), "\x1b[2ma       b\x1b[22m");
   }
 
   #[test]
@@ -728,7 +729,10 @@ mod tests {
 
       // Verify no phantom merged match like "eb828bec" exists
       let phantom_match = view.matches.iter().find(|m| m.text == "eb828bec");
-      assert!(phantom_match.is_none(), "eb828bec should not be matched across line boundary");
+      assert!(
+        phantom_match.is_none(),
+        "eb828bec should not be matched across line boundary"
+      );
 
       let mut stdin = std::io::empty();
       let mut stdout = Vec::new();

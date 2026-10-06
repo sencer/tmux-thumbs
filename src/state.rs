@@ -201,7 +201,13 @@ impl<'a> State<'a> {
       };
 
       for &(span_start, span_end) in &meta.ansi_spans {
-        push_text_segment(&v_line[last_end..span_start], &mut char_count, &mut visual_col, &mut j, &mut map);
+        push_text_segment(
+          &v_line[last_end..span_start],
+          &mut char_count,
+          &mut visual_col,
+          &mut j,
+          &mut map,
+        );
         char_count += v_line[span_start..span_end].chars().count();
         last_end = span_end;
       }
@@ -501,10 +507,7 @@ mod tests {
     assert_eq!(results.get(0).unwrap().text, "fd70b5695");
     assert_eq!(results.get(1).unwrap().text, "5246ddf");
     assert_eq!(results.get(2).unwrap().text, "f924213");
-    assert_eq!(
-      results.get(3).unwrap().text,
-      "973113963b491874ab2e372ee60d4b4cb75f717c"
-    );
+    assert_eq!(results.get(3).unwrap().text, "973113963b491874ab2e372ee60d4b4cb75f717c");
   }
 
   #[test]
@@ -529,10 +532,7 @@ mod tests {
 
     assert_eq!(results.len(), 4);
     assert_eq!(results.get(0).unwrap().text, "fe80::2:202:fe4");
-    assert_eq!(
-      results.get(1).unwrap().text,
-      "2001:67c:670:202:7ba8:5e41:1591:d723"
-    );
+    assert_eq!(results.get(1).unwrap().text, "2001:67c:670:202:7ba8:5e41:1591:d723");
     assert_eq!(results.get(2).unwrap().text, "fe80::2:1");
     assert_eq!(results.get(3).unwrap().text, "fe80:22:312:fe::1%eth0");
   }
@@ -671,10 +671,7 @@ mod tests {
     assert_eq!(results.get(3).unwrap().text, "/var/fd70b569/9999.log");
     assert_eq!(results.get(4).unwrap().text, "52463");
     assert_eq!(results.get(5).unwrap().text, "973113");
-    assert_eq!(
-      results.get(6).unwrap().text,
-      "123e4567-e89b-12d3-a456-426655440000"
-    );
+    assert_eq!(results.get(6).unwrap().text, "123e4567-e89b-12d3-a456-426655440000");
     assert_eq!(results.get(7).unwrap().text, "8888");
     assert_eq!(results.get(8).unwrap().text, "https://crates.io/23456/fd70b569");
   }
@@ -689,7 +686,9 @@ mod tests {
     assert_eq!(visual_width("a\t"), 8);
     // OSC 8 hyperlinks and charset designation escapes
     assert_eq!(
-      visual_width("\x1b]8;id=jkb4deb49e;file:///usr/local/google/home/sselcuk/.tmux.conf#L117\x1b\\~/.tmux.conf\x1b]8;;\x1b\\:"),
+      visual_width(
+        "\x1b]8;id=jkb4deb49e;file:///usr/local/google/home/sselcuk/.tmux.conf#L117\x1b\\~/.tmux.conf\x1b]8;;\x1b\\:"
+      ),
       13
     );
     assert_eq!(visual_width("\x1b(B\x1b[mhello\x1b(0"), 5);
@@ -737,6 +736,9 @@ mod tests {
     let texts: Vec<&str> = results.iter().map(|m| m.text).collect();
     assert!(texts.contains(&"ca2628a"), "ca2628a should be matched");
     assert!(texts.contains(&"b828bec"), "b828bec should be matched");
-    assert!(!texts.contains(&"eb828bec"), "eb828bec should not be matched across line boundary");
+    assert!(
+      !texts.contains(&"eb828bec"),
+      "eb828bec should not be matched across line boundary"
+    );
   }
 }

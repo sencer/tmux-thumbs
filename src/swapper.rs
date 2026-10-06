@@ -334,10 +334,7 @@ impl<'a> Swapper<'a> {
     let window_id = chunks.get(7).expect("Unable to retrieve window id");
     self.active_window_id = Some(window_id.to_string());
 
-    let pane_width = chunks
-      .get(8)
-      .and_then(|w| w.parse().ok())
-      .unwrap_or(80);
+    let pane_width = chunks.get(8).and_then(|w| w.parse().ok()).unwrap_or(80);
     self.active_pane_width = Some(pane_width);
 
     true
@@ -398,10 +395,7 @@ impl<'a> Swapper<'a> {
     let captured_text = self.executor.execute(params);
 
     // 2. Trim trailing spaces and empty lines, and tail to height in Rust
-    let mut captured_lines: Vec<String> = captured_text
-      .split('\n')
-      .map(|line| trim_captured_line(line))
-      .collect();
+    let mut captured_lines: Vec<String> = captured_text.split('\n').map(|line| trim_captured_line(line)).collect();
 
     while let Some(last_line) = captured_lines.last() {
       if last_line.is_empty() {
