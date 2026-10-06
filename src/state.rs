@@ -98,7 +98,7 @@ pub struct State<'a> {
   pub lines: &'a Vec<&'a str>,
   pub line_widths: Vec<usize>,
   pub j: String,
-  pub map: Vec<(i32, i32)>,
+  pub map: Vec<(i32, i32, usize)>,
   alphabet: &'a str,
   regexp: &'a Vec<&'a str>,
 }
@@ -109,40 +109,135 @@ impl<'a> State<'a> {
     let mut j = String::with_capacity(total_bytes + lines.len());
     let mut map = Vec::with_capacity(total_bytes + lines.len());
 
-    let line_widths: Vec<usize> = lines.iter().map(|l| visual_width(l)).collect();
-    let usable_width = line_widths.iter().max().cloned().unwrap_or(0);
+    struct LineMeta {
+      ansi_spans: Vec<(usize, usize)>,
+      total_width: usize,
+      trimmed_width: usize,
+      ends_with_border: bool,
+      starts_with_space: bool,
+    }
+
+    let mut metas = Vec::with_capacity(lines.len());
+    let mut line_widths = Vec::with_capacity(lines.len());
+
+    for v_line in lines.iter() {
+      let mut ansi_spans = Vec::new();
+      let mut total_width = 0;
+      let mut trimmed_width = 0;
+      let mut ends_with_border = false;
+      let mut starts_with_space = false;
+      let mut seen_first_char = false;
+
+      let mut process_segment = |segment: &str| {
+        let mut iter = segment.char_indices().peekable();
+        while let Some((byte_offset, ch)) = iter.next() {
+          if !seen_first_char {
+            seen_first_char = true;
+            starts_with_space = ch.is_whitespace();
+          }
+          let ch_width = if ch == '\t' {
+            8 - (total_width % 8)
+          } else if let Some(&(_, '\u{fe0f}')) = iter.peek() {
+            let (fe0f_offset, _) = iter.next().unwrap();
+            let end_offset = fe0f_offset + '\u{fe0f}'.len_utf8();
+            unicode_width::UnicodeWidthStr::width(&segment[byte_offset..end_offset])
+          } else {
+            unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
+          };
+          total_width += ch_width;
+          if !ch.is_whitespace() {
+            trimmed_width = total_width;
+            ends_with_border = ('\u{2500}'..='\u{257f}').contains(&ch);
+          }
+        }
+      };
+
+      let mut last_end = 0;
+      for m in ANSI_RE.find_iter(v_line) {
+        process_segment(&v_line[last_end..m.start()]);
+        ansi_spans.push((m.start(), m.end()));
+        last_end = m.end();
+      }
+      process_segment(&v_line[last_end..]);
+
+      line_widths.push(total_width);
+      metas.push(LineMeta {
+        ansi_spans,
+        total_width,
+        trimmed_width,
+        ends_with_border,
+        starts_with_space,
+      });
+    }
+
+    let usable_width = line_widths.iter().copied().max().unwrap_or(0);
 
     for (v_line_index, v_line) in lines.iter().enumerate() {
-      let is_wrapped = usable_width > 0 && line_widths[v_line_index] >= usable_width && v_line_index < lines.len() - 1;
-
-      let ansi_spans = ANSI_RE
-        .find_iter(v_line)
-        .map(|m| (m.start(), m.end()))
-        .collect::<Vec<_>>();
+      let meta = &metas[v_line_index];
+      let is_wrapped = usable_width >= 80
+        && meta.total_width >= usable_width
+        && meta.trimmed_width >= usable_width
+        && !meta.ends_with_border
+        && v_line_index + 1 < lines.len()
+        && !metas[v_line_index + 1].starts_with_space;
 
       let mut char_count = 0;
-      let mut active_span_idx = 0;
+      let mut visual_col = 0;
+      let mut last_end = 0;
 
-      for (byte_index, ch) in v_line.char_indices() {
-        while active_span_idx < ansi_spans.len() && byte_index >= ansi_spans[active_span_idx].1 {
-          active_span_idx += 1;
-        }
+      let push_text_segment = |segment: &str,
+                               char_count: &mut usize,
+                               visual_col: &mut usize,
+                               j: &mut String,
+                               map: &mut Vec<(i32, i32, usize)>| {
+        let mut iter = segment.char_indices().peekable();
+        while let Some((byte_offset, ch)) = iter.next() {
+          if ch == '\t' {
+            let w = 8 - (*visual_col % 8);
+            for _ in 0..ch.len_utf8() {
+              map.push((v_line_index as i32, *char_count as i32, *visual_col));
+            }
+            j.push(ch);
+            *char_count += 1;
+            *visual_col += w;
+          } else if let Some(&(fe0f_offset, '\u{fe0f}')) = iter.peek() {
+            let end_offset = fe0f_offset + '\u{fe0f}'.len_utf8();
+            let w = unicode_width::UnicodeWidthStr::width(&segment[byte_offset..end_offset]);
+            for _ in 0..ch.len_utf8() {
+              map.push((v_line_index as i32, *char_count as i32, *visual_col));
+            }
+            j.push(ch);
+            *char_count += 1;
 
-        let in_ansi = active_span_idx < ansi_spans.len() && byte_index >= ansi_spans[active_span_idx].0;
-
-        if !in_ansi {
-          let bytes = ch.len_utf8();
-          for _ in 0..bytes {
-            map.push((v_line_index as i32, char_count as i32));
+            iter.next();
+            for _ in 0..'\u{fe0f}'.len_utf8() {
+              map.push((v_line_index as i32, *char_count as i32, *visual_col));
+            }
+            j.push('\u{fe0f}');
+            *char_count += 1;
+            *visual_col += w;
+          } else {
+            let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            for _ in 0..ch.len_utf8() {
+              map.push((v_line_index as i32, *char_count as i32, *visual_col));
+            }
+            j.push(ch);
+            *char_count += 1;
+            *visual_col += w;
           }
-          j.push(ch);
         }
-        char_count += 1;
+      };
+
+      for &(span_start, span_end) in &meta.ansi_spans {
+        push_text_segment(&v_line[last_end..span_start], &mut char_count, &mut visual_col, &mut j, &mut map);
+        char_count += v_line[span_start..span_end].chars().count();
+        last_end = span_end;
       }
+      push_text_segment(&v_line[last_end..], &mut char_count, &mut visual_col, &mut j, &mut map);
 
       if !is_wrapped {
         j.push('\n');
-        map.push((v_line_index as i32, v_line.chars().count() as i32));
+        map.push((v_line_index as i32, char_count as i32, visual_col));
       }
     }
 
@@ -165,30 +260,30 @@ impl<'a> State<'a> {
       .map(|regexp| ("custom", Regex::new(regexp).expect("Invalid custom regexp")))
       .collect::<Vec<_>>();
 
-    let all_patterns: Vec<(&str, Regex)> = COMPILED_EXCLUDE_PATTERNS
+    let all_patterns: Vec<(&str, &Regex)> = COMPILED_EXCLUDE_PATTERNS
       .iter()
-      .map(|(name, re)| (*name, re.clone()))
-      .chain(custom_patterns.into_iter())
-      .chain(COMPILED_PATTERNS.iter().map(|(name, re)| (*name, re.clone())))
+      .map(|(name, re)| (*name, re))
+      .chain(custom_patterns.iter().map(|(name, re)| (*name, re)))
+      .chain(COMPILED_PATTERNS.iter().map(|(name, re)| (*name, re)))
       .collect();
 
-    struct RawMatch<'a> {
+    struct RawMatch<'a, 'b> {
       start: usize,
       end: usize,
       pattern_name: &'a str,
-      pattern: Regex,
+      pattern: &'b Regex,
       text: &'a str,
       priority: usize,
     }
 
     let mut raw_matches = Vec::new();
-    for (priority, (name, pattern)) in all_patterns.iter().enumerate() {
+    for (priority, &(name, pattern)) in all_patterns.iter().enumerate() {
       for m in pattern.find_iter(&self.j) {
         raw_matches.push(RawMatch {
           start: m.start(),
           end: m.end(),
           pattern_name: name,
-          pattern: pattern.clone(),
+          pattern,
           text: m.as_str(),
           priority,
         });
@@ -203,44 +298,45 @@ impl<'a> State<'a> {
         continue;
       }
 
-      if let Some(captures) = rm.pattern.captures(rm.text) {
-        let captures: Vec<(&str, usize)> = if let Some(capture) = captures.name("match") {
-          [(capture.as_str(), capture.start())].to_vec()
+      let captures: Vec<(&str, usize)> = if rm.pattern.captures_len() == 1 {
+        vec![(rm.text, 0)]
+      } else if let Some(captures) = rm.pattern.captures(rm.text) {
+        if let Some(capture) = captures.name("match") {
+          vec![(capture.as_str(), capture.start())]
         } else if captures.len() > 1 {
           captures
             .iter()
             .skip(1)
-            .filter_map(|capture| capture)
+            .flatten()
             .map(|capture| (capture.as_str(), capture.start()))
-            .collect::<Vec<(&str, usize)>>()
+            .collect()
         } else {
-          [(rm.text, 0)].to_vec()
-        };
+          vec![(rm.text, 0)]
+        }
+      } else {
+        continue;
+      };
 
-        if rm.pattern_name != "bash" {
-          for (subtext, substart) in captures.iter() {
-            let j_match_start = rm.start + *substart;
+      if rm.pattern_name != "bash" {
+        for (subtext, substart) in captures.iter() {
+          let j_match_start = rm.start + *substart;
 
-            if j_match_start < self.map.len() {
-              let (v_line, v_char) = self.map[j_match_start];
-              let line = self.lines[v_line as usize];
-              let prefix: String = line.chars().take(v_char as usize).collect();
-              let visual_x = visual_width(&prefix);
+          if j_match_start < self.map.len() {
+            let (v_line, v_char, visual_x) = self.map[j_match_start];
 
-              matches.push(Match {
-                x: v_char,
-                y: v_line,
-                visual_x,
-                pattern: rm.pattern_name,
-                text: subtext,
-                hint: None,
-              });
-            }
+            matches.push(Match {
+              x: v_char,
+              y: v_line,
+              visual_x,
+              pattern: rm.pattern_name,
+              text: subtext,
+              hint: None,
+            });
           }
         }
-
-        last_end = rm.end;
       }
+
+      last_end = rm.end;
     }
 
     let alphabet = super::alphabets::get_alphabet(self.alphabet);
@@ -613,5 +709,20 @@ mod tests {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].text, "~/.tmux.conf");
     assert_eq!(results[0].visual_x, 8);
+  }
+
+  #[test]
+  fn no_false_positive_line_wrap() {
+    // Two short lines where line 0 is the longest line and ends with a path, and line 1 starts at col 0
+    let lines = split("check /usr/local/bin\n/var/log/syslog");
+    let custom = [].to_vec();
+    let state = State::new(&lines, "abcd", &custom);
+    let results = state.matches(false, false);
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].text, "/usr/local/bin");
+    assert_eq!(results[0].y, 0);
+    assert_eq!(results[1].text, "/var/log/syslog");
+    assert_eq!(results[1].y, 1);
   }
 }

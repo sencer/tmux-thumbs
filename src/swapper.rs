@@ -70,6 +70,135 @@ fn parse_option_line(line: &str) -> Option<(String, String)> {
   None
 }
 
+fn trim_captured_line(line: &str) -> String {
+  let line = line.trim_end_matches(|c: char| c == ' ' || c == '\t');
+  if line.is_empty() {
+    return String::new();
+  }
+
+  let mut has_active_bg = false;
+  let mut had_any_escape = false;
+  let mut last_meaningful_end = 0;
+  let mut ended_with_sgr = false;
+
+  let bytes = line.as_bytes();
+  let mut i = 0;
+  while i < bytes.len() {
+    if bytes[i] == 0x1b {
+      had_any_escape = true;
+      let start = i;
+      i += 1;
+      if i < bytes.len() && bytes[i] == b'[' {
+        i += 1;
+        let params_start = i;
+        while i < bytes.len() && (bytes[i] < 0x40 || bytes[i] > 0x7e) {
+          i += 1;
+        }
+        if i < bytes.len() {
+          let final_byte = bytes[i];
+          i += 1;
+          if final_byte == b'm' {
+            let params = &line[params_start..i - 1];
+            let tokens: Vec<&str> = params.split(';').collect();
+            let mut t = 0;
+            while t < tokens.len() {
+              let code = tokens[t].split(':').next().unwrap_or("");
+              if code == "38" || code == "58" {
+                if !tokens[t].contains(':') {
+                  match tokens.get(t + 1).copied() {
+                    Some("5") => {
+                      t += 3;
+                      continue;
+                    }
+                    Some("2") => {
+                      t += 5;
+                      continue;
+                    }
+                    _ => {}
+                  }
+                }
+              } else if code == "48" {
+                has_active_bg = true;
+                if !tokens[t].contains(':') {
+                  match tokens.get(t + 1).copied() {
+                    Some("5") => {
+                      t += 3;
+                      continue;
+                    }
+                    Some("2") => {
+                      t += 5;
+                      continue;
+                    }
+                    _ => {}
+                  }
+                }
+              } else if let Ok(n) = code.parse::<u16>() {
+                if n == 0 || n == 27 || n == 49 {
+                  has_active_bg = false;
+                } else if n == 7 || (40..=47).contains(&n) || (100..=107).contains(&n) {
+                  has_active_bg = true;
+                }
+              } else if code.is_empty() {
+                has_active_bg = false;
+              }
+              t += 1;
+            }
+            if last_meaningful_end > 0 && last_meaningful_end == start && !has_active_bg {
+              last_meaningful_end = i;
+              ended_with_sgr = true;
+            }
+          }
+        }
+      } else if i < bytes.len()
+        && (bytes[i] == b']' || bytes[i] == b'P' || bytes[i] == b'X' || bytes[i] == b'^' || bytes[i] == b'_')
+      {
+        i += 1;
+        while i < bytes.len() {
+          if bytes[i] == 0x07 {
+            i += 1;
+            break;
+          }
+          if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
+            i += 2;
+            break;
+          }
+          i += 1;
+        }
+        if last_meaningful_end > 0 && last_meaningful_end == start {
+          last_meaningful_end = i;
+        }
+      } else {
+        while i < bytes.len() && (0x20..=0x2f).contains(&bytes[i]) {
+          i += 1;
+        }
+        if i < bytes.len() {
+          i += 1;
+        }
+      }
+    } else {
+      let ch = line[i..].chars().next().unwrap();
+      let ch_len = ch.len_utf8();
+      i += ch_len;
+      if (ch != ' ' && ch != '\t') || has_active_bg {
+        last_meaningful_end = i;
+        ended_with_sgr = false;
+      }
+    }
+  }
+
+  if last_meaningful_end == 0 {
+    return String::new();
+  }
+  if last_meaningful_end == line.len() {
+    return line.to_string();
+  }
+  let mut out = line[..last_meaningful_end].to_string();
+  if had_any_escape && !ended_with_sgr {
+    out.push_str("\x1b[0m");
+  }
+  out
+}
+
 pub struct Swapper<'a> {
   executor: Box<&'a mut dyn Executor>,
   dir: String,
@@ -247,9 +376,9 @@ impl<'a> Swapper<'a> {
     let captured_text = self.executor.execute(params);
 
     // 2. Trim trailing spaces and empty lines, and tail to height in Rust
-    let mut captured_lines: Vec<&str> = captured_text
+    let mut captured_lines: Vec<String> = captured_text
       .split('\n')
-      .map(|line| line.trim_end_matches(|c: char| c == ' ' || c == '\t'))
+      .map(|line| trim_captured_line(line))
       .collect();
 
     while let Some(last_line) = captured_lines.last() {
@@ -647,6 +776,26 @@ mod tests {
       Some(("regexp-1".to_string(), "[0-9]+".to_string()))
     );
     assert_eq!(parse_option_line(r#"not-a-thumbs-option value"#), None);
+  }
+
+  #[test]
+  fn test_trim_captured_line() {
+    // Whitespace-only with foreground SGRs trims to empty string
+    assert_eq!(trim_captured_line("  \x1b[38;2;192;202;245m  \x1b[39m"), "");
+    assert_eq!(trim_captured_line("\x1b[39m"), "");
+    assert_eq!(trim_captured_line("\x1b[1m\x1b[38;2;122;162;247m  \x1b[0m"), "");
+
+    // Trailing default-bg spaces before final SGR reset are stripped while keeping reset
+    assert_eq!(
+      trim_captured_line("  \x1b[38;2;192;202;245mhello.\x1b[39m                    \x1b[38;2;192;202;245m   \x1b[39m"),
+      "  \x1b[38;2;192;202;245mhello.\x1b[39m"
+    );
+
+    // Trailing spaces with active background color (e.g. statusline) are preserved
+    assert_eq!(
+      trim_captured_line("\x1b[48;2;30;30;46m NORMAL     \x1b[0m"),
+      "\x1b[48;2;30;30;46m NORMAL     \x1b[0m"
+    );
   }
 }
 
