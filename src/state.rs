@@ -43,7 +43,7 @@ const PATTERNS: [(&'static str, &'static str); 15] = [
   ("markdown_url", r"\[[^]]*\]\(([^)]+)\)"),
   (
     "url",
-    r"(?P<match>(https?://|git@|git://|ssh://|ftp://|file:///)[^ \n]+)",
+    r#"(?P<match>(https?://|git@|git://|ssh://|ftp://|file:///)[^ \n<>"']+)"#,
   ),
   (
     "diff_summary",
@@ -319,6 +319,11 @@ impl<'a> State<'a> {
 
       if rm.pattern_name != "bash" {
         for (subtext, substart) in captures.iter() {
+          let subtext = if rm.pattern_name == "url" {
+            trim_url_punctuation(subtext)
+          } else {
+            *subtext
+          };
           let j_match_start = rm.start + *substart;
 
           if j_match_start < self.map.len() {
@@ -356,14 +361,14 @@ impl<'a> State<'a> {
         if let Some(previous_hint) = previous.get(mat.text) {
           mat.hint = Some(previous_hint.clone());
         } else if let Some(hint) = hints.pop() {
-          mat.hint = Some(hint.to_string().clone());
-          previous.insert(mat.text, hint.to_string().clone());
+          mat.hint = Some(hint.to_string());
+          previous.insert(mat.text, hint.to_string());
         }
       }
     } else {
       for mat in &mut matches {
         if let Some(hint) = hints.pop() {
-          mat.hint = Some(hint.to_string().clone());
+          mat.hint = Some(hint.to_string());
         }
       }
     }
@@ -373,6 +378,29 @@ impl<'a> State<'a> {
     }
 
     matches
+  }
+}
+
+fn trim_url_punctuation(mut url: &str) -> &str {
+  loop {
+    let trimmed = url.trim_end_matches(|c: char| matches!(c, '.' | ',' | ';' | ':' | '!' | '?'));
+    if let Some(without_paren) = trimmed.strip_suffix(')') {
+      let open = without_paren.chars().filter(|&c| c == '(').count();
+      let close = without_paren.chars().filter(|&c| c == ')').count();
+      if close >= open {
+        url = without_paren;
+        continue;
+      }
+    }
+    if let Some(without_bracket) = trimmed.strip_suffix(']') {
+      let open = without_bracket.chars().filter(|&c| c == '[').count();
+      let close = without_bracket.chars().filter(|&c| c == ']').count();
+      if close >= open {
+        url = without_bracket;
+        continue;
+      }
+    }
+    return trimmed;
   }
 }
 
@@ -443,9 +471,9 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 3);
-    assert_eq!(results.get(0).unwrap().text.clone(), "/tmp/foo/bar_lol");
-    assert_eq!(results.get(1).unwrap().text.clone(), "/var/log/boot-strap.log");
-    assert_eq!(results.get(2).unwrap().text.clone(), "../log/kern.log");
+    assert_eq!(results.get(0).unwrap().text, "/tmp/foo/bar_lol");
+    assert_eq!(results.get(1).unwrap().text, "/var/log/boot-strap.log");
+    assert_eq!(results.get(2).unwrap().text, "../log/kern.log");
   }
 
   #[test]
@@ -456,8 +484,8 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 2);
-    assert_eq!(results.get(0).unwrap().text.clone(), "/app/routes/$routeId/$objectId");
-    assert_eq!(results.get(1).unwrap().text.clone(), "/app/routes/$sectionId");
+    assert_eq!(results.get(0).unwrap().text, "/app/routes/$routeId/$objectId");
+    assert_eq!(results.get(1).unwrap().text, "/app/routes/$sectionId");
   }
 
   #[test]
@@ -468,7 +496,7 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results.get(0).unwrap().text.clone(), "~/.gnu/.config.txt");
+    assert_eq!(results.get(0).unwrap().text, "~/.gnu/.config.txt");
   }
 
   #[test]
@@ -479,7 +507,7 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results.get(0).unwrap().text.clone(), "dev/api/[slug]/foo");
+    assert_eq!(results.get(0).unwrap().text, "dev/api/[slug]/foo");
   }
 
   #[test]
@@ -500,11 +528,11 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 4);
-    assert_eq!(results.get(0).unwrap().text.clone(), "fd70b5695");
-    assert_eq!(results.get(1).unwrap().text.clone(), "5246ddf");
-    assert_eq!(results.get(2).unwrap().text.clone(), "f924213");
+    assert_eq!(results.get(0).unwrap().text, "fd70b5695");
+    assert_eq!(results.get(1).unwrap().text, "5246ddf");
+    assert_eq!(results.get(2).unwrap().text, "f924213");
     assert_eq!(
-      results.get(3).unwrap().text.clone(),
+      results.get(3).unwrap().text,
       "973113963b491874ab2e372ee60d4b4cb75f717c"
     );
   }
@@ -517,9 +545,9 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 3);
-    assert_eq!(results.get(0).unwrap().text.clone(), "127.0.0.1");
-    assert_eq!(results.get(1).unwrap().text.clone(), "255.255.10.255");
-    assert_eq!(results.get(2).unwrap().text.clone(), "127.0.0.1");
+    assert_eq!(results.get(0).unwrap().text, "127.0.0.1");
+    assert_eq!(results.get(1).unwrap().text, "255.255.10.255");
+    assert_eq!(results.get(2).unwrap().text, "127.0.0.1");
   }
 
   #[test]
@@ -530,13 +558,13 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 4);
-    assert_eq!(results.get(0).unwrap().text.clone(), "fe80::2:202:fe4");
+    assert_eq!(results.get(0).unwrap().text, "fe80::2:202:fe4");
     assert_eq!(
-      results.get(1).unwrap().text.clone(),
+      results.get(1).unwrap().text,
       "2001:67c:670:202:7ba8:5e41:1591:d723"
     );
-    assert_eq!(results.get(2).unwrap().text.clone(), "fe80::2:1");
-    assert_eq!(results.get(3).unwrap().text.clone(), "fe80:22:312:fe::1%eth0");
+    assert_eq!(results.get(2).unwrap().text, "fe80::2:1");
+    assert_eq!(results.get(3).unwrap().text, "fe80:22:312:fe::1%eth0");
   }
 
   #[test]
@@ -547,28 +575,31 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 2);
-    assert_eq!(results.get(0).unwrap().pattern.clone(), "markdown_url");
-    assert_eq!(results.get(0).unwrap().text.clone(), "https://github.io?foo=bar");
-    assert_eq!(results.get(1).unwrap().pattern.clone(), "markdown_url");
-    assert_eq!(results.get(1).unwrap().text.clone(), "http://cdn.com/img.jpg");
+    assert_eq!(results.get(0).unwrap().pattern, "markdown_url");
+    assert_eq!(results.get(0).unwrap().text, "https://github.io?foo=bar");
+    assert_eq!(results.get(1).unwrap().pattern, "markdown_url");
+    assert_eq!(results.get(1).unwrap().text, "http://cdn.com/img.jpg");
   }
 
   #[test]
   fn match_urls() {
-    let lines = split("Lorem ipsum https://www.rust-lang.org/tools lorem\n Lorem ipsumhttps://crates.io lorem https://github.io?foo=bar lorem ssh://github.io");
+    let lines = split("Lorem ipsum https://www.rust-lang.org/tools. lorem\n Lorem (https://crates.io) lorem https://en.wikipedia.org/wiki/Rust_(programming_language) lorem ssh://github.io");
     let custom = [].to_vec();
     let state = State::new(&lines, "abcd", &custom);
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 4);
-    assert_eq!(results.get(0).unwrap().text.clone(), "https://www.rust-lang.org/tools");
-    assert_eq!(results.get(0).unwrap().pattern.clone(), "url");
-    assert_eq!(results.get(1).unwrap().text.clone(), "https://crates.io");
-    assert_eq!(results.get(1).unwrap().pattern.clone(), "url");
-    assert_eq!(results.get(2).unwrap().text.clone(), "https://github.io?foo=bar");
-    assert_eq!(results.get(2).unwrap().pattern.clone(), "url");
-    assert_eq!(results.get(3).unwrap().text.clone(), "ssh://github.io");
-    assert_eq!(results.get(3).unwrap().pattern.clone(), "url");
+    assert_eq!(results.get(0).unwrap().text, "https://www.rust-lang.org/tools");
+    assert_eq!(results.get(0).unwrap().pattern, "url");
+    assert_eq!(results.get(1).unwrap().text, "https://crates.io");
+    assert_eq!(results.get(1).unwrap().pattern, "url");
+    assert_eq!(
+      results.get(2).unwrap().text,
+      "https://en.wikipedia.org/wiki/Rust_(programming_language)"
+    );
+    assert_eq!(results.get(2).unwrap().pattern, "url");
+    assert_eq!(results.get(3).unwrap().text, "ssh://github.io");
+    assert_eq!(results.get(3).unwrap().pattern, "url");
   }
 
   #[test]
@@ -579,9 +610,9 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 3);
-    assert_eq!(results.get(0).unwrap().text.clone(), "0xfd70b5695");
-    assert_eq!(results.get(1).unwrap().text.clone(), "0x5246ddf");
-    assert_eq!(results.get(2).unwrap().text.clone(), "0x973113");
+    assert_eq!(results.get(0).unwrap().text, "0xfd70b5695");
+    assert_eq!(results.get(1).unwrap().text, "0x5246ddf");
+    assert_eq!(results.get(2).unwrap().text, "0x973113");
   }
 
   #[test]
@@ -592,10 +623,10 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 4);
-    assert_eq!(results.get(0).unwrap().text.clone(), "#fd7b56");
-    assert_eq!(results.get(1).unwrap().text.clone(), "#FF00FF");
-    assert_eq!(results.get(2).unwrap().text.clone(), "#00fF05");
-    assert_eq!(results.get(3).unwrap().text.clone(), "#abcd00");
+    assert_eq!(results.get(0).unwrap().text, "#fd7b56");
+    assert_eq!(results.get(1).unwrap().text, "#FF00FF");
+    assert_eq!(results.get(2).unwrap().text, "#00fF05");
+    assert_eq!(results.get(3).unwrap().text, "#abcd00");
   }
 
   #[test]
@@ -607,7 +638,7 @@ mod tests {
 
     assert_eq!(results.len(), 1);
     assert_eq!(
-      results.get(0).unwrap().text.clone(),
+      results.get(0).unwrap().text,
       "QmRdbNSxDJBXmssAc9fvTtux4duptMvfSGiGuq6yHAQVKQ"
     );
   }
@@ -631,7 +662,7 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results.get(0).unwrap().text.clone(), "src/main.rs");
+    assert_eq!(results.get(0).unwrap().text, "src/main.rs");
   }
 
   #[test]
@@ -642,7 +673,7 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results.get(0).unwrap().text.clone(), "src/main.rs");
+    assert_eq!(results.get(0).unwrap().text, "src/main.rs");
   }
 
   #[test]
@@ -653,8 +684,8 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 2);
-    assert_eq!(results.get(0).unwrap().text.clone(), "samples/test1");
-    assert_eq!(results.get(1).unwrap().text.clone(), "samples/test2");
+    assert_eq!(results.get(0).unwrap().text, "samples/test1");
+    assert_eq!(results.get(1).unwrap().text, "samples/test2");
   }
   #[test]
   fn priority() {
@@ -664,18 +695,18 @@ mod tests {
     let results = state.matches(false, false);
 
     assert_eq!(results.len(), 9);
-    assert_eq!(results.get(0).unwrap().text.clone(), "http://foo.bar");
-    assert_eq!(results.get(1).unwrap().text.clone(), "CUSTOM-52463");
-    assert_eq!(results.get(2).unwrap().text.clone(), "ISSUE-123");
-    assert_eq!(results.get(3).unwrap().text.clone(), "/var/fd70b569/9999.log");
-    assert_eq!(results.get(4).unwrap().text.clone(), "52463");
-    assert_eq!(results.get(5).unwrap().text.clone(), "973113");
+    assert_eq!(results.get(0).unwrap().text, "http://foo.bar");
+    assert_eq!(results.get(1).unwrap().text, "CUSTOM-52463");
+    assert_eq!(results.get(2).unwrap().text, "ISSUE-123");
+    assert_eq!(results.get(3).unwrap().text, "/var/fd70b569/9999.log");
+    assert_eq!(results.get(4).unwrap().text, "52463");
+    assert_eq!(results.get(5).unwrap().text, "973113");
     assert_eq!(
-      results.get(6).unwrap().text.clone(),
+      results.get(6).unwrap().text,
       "123e4567-e89b-12d3-a456-426655440000"
     );
-    assert_eq!(results.get(7).unwrap().text.clone(), "8888");
-    assert_eq!(results.get(8).unwrap().text.clone(), "https://crates.io/23456/fd70b569");
+    assert_eq!(results.get(7).unwrap().text, "8888");
+    assert_eq!(results.get(8).unwrap().text, "https://crates.io/23456/fd70b569");
   }
 
   #[test]
