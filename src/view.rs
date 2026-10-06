@@ -128,71 +128,32 @@ impl<'a> View<'a> {
           ("".to_string(), "".to_string())
         };
 
-        if r == h - 1 {
-          // BOTTOM ROW: Print text as-is, trimmed to w-1, with NO trailing padding!
-          let line_vis_width = self.state.line_widths[index];
-          let wrap_w = if w > 1 { w - 1 } else { w };
-
-          let trimmed_line = if line_vis_width > wrap_w {
-            slice_line_to_width(line, wrap_w)
-          } else {
-            line.to_string()
-          };
-
-          let bg_color = if self.alt_background_color.is_some() {
-            let bg = if index % 2 == 0 {
-              &self.background_color
-            } else {
-              self.alt_background_color.as_ref().unwrap()
-            };
-            Some(&**bg)
-          } else {
-            None
-          };
-
-          let final_line = style_ansi_line(&trimmed_line, self.faint, bg_color);
-          print!(
-            "{goto}{fg}{text}{reset_fg}",
-            goto = goto,
-            fg = fg,
-            text = final_line,
-            reset_fg = reset_fg
-          );
+        let line_vis_width = self.state.line_widths[index];
+        let trimmed_line = if line_vis_width > w {
+          slice_line_to_width(line, w)
         } else {
-          // NORMAL ROW: Pad to w-1 (or wrap_w)
-          let bg_color = if self.alt_background_color.is_some() {
-            let bg = if index % 2 == 0 {
-              &self.background_color
-            } else {
-              self.alt_background_color.as_ref().unwrap()
-            };
-            Some(&**bg)
-          } else {
-            None
-          };
+          line.to_string()
+        };
 
-          let final_line = if bg_color.is_some() {
-            let line_vis_width = self.state.line_widths[index];
-            let wrap_w = if w > 1 { w - 1 } else { w };
-            let padding_len = if line_vis_width < wrap_w {
-              wrap_w - line_vis_width
-            } else {
-              0
-            };
-            let padded = format!("{}{}", line, " ".repeat(padding_len));
-            style_ansi_line(&padded, self.faint, bg_color)
+        let bg_color = if self.alt_background_color.is_some() {
+          let bg = if index % 2 == 0 {
+            &self.background_color
           } else {
-            style_ansi_line(line, self.faint, None)
+            self.alt_background_color.as_ref().unwrap()
           };
+          Some(&**bg)
+        } else {
+          None
+        };
 
-          print!(
-            "{goto}{fg}{text}{reset_fg}",
-            goto = goto,
-            fg = fg,
-            text = final_line,
-            reset_fg = reset_fg
-          );
-        }
+        let final_line = style_ansi_line(&trimmed_line, self.faint, bg_color);
+        print!(
+          "{goto}{fg}{text}{reset_fg}",
+          goto = goto,
+          fg = fg,
+          text = final_line,
+          reset_fg = reset_fg
+        );
       }
     }
 
@@ -553,41 +514,156 @@ mod tests {
     let result = view.listen(&mut stdin, &mut stdout);
     assert!(matches!(result, CaptureEvent::Exit));
   }
+
+  #[test]
+  fn test_style_ansi_line() {
+    // Faint mode restores after \x1b[0m, \x1b[m, \x1b[22m, compound \x1b[0;32m, and dims \x1b[1m bold
+    assert_eq!(
+      style_ansi_line("\x1b[1mBold\x1b[0m plain \x1b[0;32mgreen\x1b[22m end", true, None),
+      "\x1b[2m\x1b[1m\x1b[22;2mBold\x1b[0m\x1b[2m plain \x1b[0;32m\x1b[2mgreen\x1b[22m\x1b[2m end\x1b[22m"
+    );
+
+    // 24-bit RGB parameters (like 38;2;0;1;22) are not mistaken for SGR 0, 1, or 22
+    assert_eq!(
+      style_ansi_line("\x1b[38;2;0;1;22mtext\x1b[39m", true, None),
+      "\x1b[2m\x1b[38;2;0;1;22mtext\x1b[39m\x1b[22m"
+    );
+
+    // Background color restores after \x1b[0m, \x1b[49m, and emits \x1b[K BCE before reset
+    let bg = colors::get_color("black");
+    let bg_seq = format!("{}", color::Bg(&*bg));
+    let bg_reset = format!("{}", color::Bg(color::Reset));
+    assert_eq!(
+      style_ansi_line("hello \x1b[44mblue\x1b[49m world", false, Some(&*bg)),
+      format!("{bg}hello \x1b[44mblue\x1b[49m{bg} world\x1b[K{reset}", bg = bg_seq, reset = bg_reset)
+    );
+
+    // Tabs expand to 8-col tab stops
+    assert_eq!(
+      style_ansi_line("a\tb", true, None),
+      "\x1b[2ma       b\x1b[22m"
+    );
+  }
 }
 
 fn style_ansi_line(s: &str, faint: bool, bg_color: Option<&dyn color::Color>) -> String {
-  if s.is_empty() && !faint && bg_color.is_none() {
+  let has_tabs = s.contains('\t');
+  if !has_tabs && !faint && bg_color.is_none() {
     return s.to_string();
   }
 
   let mut prefix = String::new();
-  let mut restore = String::new();
   let mut suffix = String::new();
 
   if faint {
     prefix.push_str("\x1b[2m");
-    restore.push_str("\x1b[2m");
     suffix.push_str("\x1b[22m");
   }
 
-  if let Some(bg) = bg_color {
-    let bg_seq = format!("{}", color::Bg(bg));
-    prefix.push_str(&bg_seq);
-    restore.push_str(&bg_seq);
+  let bg_seq = bg_color.map(|bg| format!("{}", color::Bg(bg)));
+  if let Some(ref bg) = bg_seq {
+    prefix.push_str(bg);
+    suffix.push_str("\x1b[K");
     suffix.push_str(format!("{}", color::Bg(color::Reset)).as_str());
   }
 
-  if prefix.is_empty() {
-    return s.to_string();
-  }
-
-  let mut result = String::new();
+  let mut result = String::with_capacity(s.len() + prefix.len() + suffix.len() + 16);
   result.push_str(&prefix);
 
-  let s = s.replace("\x1b[0m", &format!("\x1b[0m{}", restore));
-  let s = s.replace("\x1b[m", &format!("\x1b[m{}", restore));
+  let mut col = 0;
+  let push_segment = |segment: &str, out: &mut String, col: &mut usize| {
+    if has_tabs {
+      for (i, part) in segment.split('\t').enumerate() {
+        if i > 0 {
+          let spaces = 8 - (*col % 8);
+          for _ in 0..spaces {
+            out.push(' ');
+          }
+          *col += spaces;
+        }
+        out.push_str(part);
+        *col += unicode_width::UnicodeWidthStr::width(part);
+      }
+    } else {
+      out.push_str(segment);
+    }
+  };
 
-  result.push_str(&s);
+  let mut last_end = 0;
+  for mat in state::ANSI_RE.find_iter(s) {
+    push_segment(&s[last_end..mat.start()], &mut result, &mut col);
+    let seq = mat.as_str();
+    result.push_str(seq);
+
+    if (faint || bg_seq.is_some()) && seq.starts_with("\x1b[") && seq.ends_with('m') {
+      let params = &seq[2..seq.len() - 1];
+      let mut restore_faint = false;
+      let mut clear_bold_first = false;
+      let mut restore_bg = false;
+
+      let tokens: Vec<&str> = params.split(';').collect();
+      let mut i = 0;
+      while i < tokens.len() {
+        let tok = tokens[i];
+        let code = tok.split(':').next().unwrap_or("");
+        if code == "38" || code == "48" || code == "58" {
+          if !tok.contains(':') {
+            match tokens.get(i + 1).copied() {
+              Some("5") => {
+                i += 3;
+                continue;
+              }
+              Some("2") => {
+                i += 5;
+                continue;
+              }
+              _ => {}
+            }
+          }
+        } else {
+          match code {
+            "" | "0" => {
+              restore_faint = faint;
+              restore_bg = bg_seq.is_some();
+            }
+            "1" => {
+              if faint {
+                restore_faint = true;
+                clear_bold_first = true;
+              }
+            }
+            "22" => {
+              if faint {
+                restore_faint = true;
+              }
+            }
+            "49" => {
+              if bg_seq.is_some() {
+                restore_bg = true;
+              }
+            }
+            _ => {}
+          }
+        }
+        i += 1;
+      }
+
+      if clear_bold_first {
+        result.push_str("\x1b[22;2m");
+      } else if restore_faint {
+        result.push_str("\x1b[2m");
+      }
+      if restore_bg {
+        if let Some(ref bg) = bg_seq {
+          result.push_str(bg);
+        }
+      }
+    }
+
+    last_end = mat.end();
+  }
+
+  push_segment(&s[last_end..], &mut result, &mut col);
   result.push_str(&suffix);
   result
 }
