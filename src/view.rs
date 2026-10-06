@@ -419,38 +419,42 @@ impl<'a> View<'a> {
 }
 
 fn slice_line_to_width(line: &str, max_w: usize) -> String {
-  let mut sliced = String::new();
   let mut current_width = 0;
-  let mut in_escape = false;
+  let mut last_end = 0;
 
-  for ch in line.chars() {
-    if in_escape {
-      sliced.push(ch);
-      if ch.is_ascii_alphabetic() {
-        in_escape = false;
+  let slice_segment = |segment: &str, base_idx: usize, current_width: &mut usize| -> Option<usize> {
+    let mut iter = segment.char_indices().peekable();
+    while let Some((byte_offset, ch)) = iter.next() {
+      let ch_width = if ch == '\t' {
+        8 - (*current_width % 8)
+      } else if let Some(&(_, '\u{fe0f}')) = iter.peek() {
+        let (fe0f_offset, _) = iter.next().unwrap();
+        let end_offset = fe0f_offset + '\u{fe0f}'.len_utf8();
+        unicode_width::UnicodeWidthStr::width(&segment[byte_offset..end_offset])
+      } else {
+        unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
+      };
+
+      if *current_width + ch_width > max_w {
+        return Some(base_idx + byte_offset);
       }
-      continue;
+      *current_width += ch_width;
     }
+    None
+  };
 
-    if ch == '\x1b' {
-      in_escape = true;
-      sliced.push(ch);
-      continue;
+  for mat in state::ANSI_RE.find_iter(line) {
+    if let Some(cutoff) = slice_segment(&line[last_end..mat.start()], last_end, &mut current_width) {
+      return line[..cutoff].to_string();
     }
-
-    let ch_width = if ch == '\t' {
-      8 - (current_width % 8)
-    } else {
-      unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
-    };
-
-    if current_width + ch_width > max_w {
-      break;
-    }
-    sliced.push(ch);
-    current_width += ch_width;
+    last_end = mat.end();
   }
-  sliced
+
+  if let Some(cutoff) = slice_segment(&line[last_end..], last_end, &mut current_width) {
+    return line[..cutoff].to_string();
+  }
+
+  line.to_string()
 }
 
 #[cfg(test)]
@@ -502,6 +506,13 @@ mod tests {
     assert_eq!(slice_line_to_width("hello \x1b[31mworld\x1b[m", 8), "hello \x1b[31mwo");
     assert_eq!(slice_line_to_width("\tmodified", 12), "\tmodi");
     assert_eq!(slice_line_to_width("a\tmodified", 12), "a\tmodi");
+    assert_eq!(
+      slice_line_to_width("\x1b]8;id=123;https://example.com\x1b\\hello\x1b]8;;\x1b\\", 3),
+      "\x1b]8;id=123;https://example.com\x1b\\hel"
+    );
+    assert_eq!(slice_line_to_width("\x1b(Bhello", 3), "\x1b(Bhel");
+    assert_eq!(slice_line_to_width("⚠️bc", 2), "⚠️");
+    assert_eq!(slice_line_to_width("⚠️bc", 1), "");
   }
 
   #[test]

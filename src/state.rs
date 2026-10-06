@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::fmt;
 
 lazy_static! {
-  static ref ANSI_RE: Regex = Regex::new(r"(\x1b|\\033|\\e)\[[0-9;:?]*[a-zA-Z]").unwrap();
+  pub(crate) static ref ANSI_RE: Regex = Regex::new(
+    r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|[PX^_][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-9:;<=>?]*[ -/]*[@-~]|[ -/]+[0-~]|[0-~])"
+  )
+  .unwrap();
   static ref COMPILED_EXCLUDE_PATTERNS: Vec<(&'static str, Regex)> = EXCLUDE_PATTERNS
     .iter()
     .map(|tuple| (tuple.0, Regex::new(tuple.1).unwrap()))
@@ -15,14 +18,21 @@ lazy_static! {
 }
 
 pub fn visual_width(s: &str) -> usize {
-  let stripped = ANSI_RE.replace_all(s, "");
   let mut width = 0;
-  for ch in stripped.chars() {
-    if ch == '\t' {
+  let mut last_end = 0;
+  for m in ANSI_RE.find_iter(s) {
+    width = add_segment_width(&s[last_end..m.start()], width);
+    last_end = m.end();
+  }
+  add_segment_width(&s[last_end..], width)
+}
+
+fn add_segment_width(segment: &str, mut width: usize) -> usize {
+  for (i, part) in segment.split('\t').enumerate() {
+    if i > 0 {
       width += 8 - (width % 8);
-    } else {
-      width += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
     }
+    width += unicode_width::UnicodeWidthStr::width(part);
   }
   width
 }
@@ -580,5 +590,28 @@ mod tests {
     assert_eq!(visual_width("    \x1b[31mmodified:\x1b[m   "), 16);
     assert_eq!(visual_width("\t\x1b[31mmodified:\x1b[m    "), 21);
     assert_eq!(visual_width("a\t"), 8);
+    // OSC 8 hyperlinks and charset designation escapes
+    assert_eq!(
+      visual_width("\x1b]8;id=jkb4deb49e;file:///usr/local/google/home/sselcuk/.tmux.conf#L117\x1b\\~/.tmux.conf\x1b]8;;\x1b\\:"),
+      13
+    );
+    assert_eq!(visual_width("\x1b(B\x1b[mhello\x1b(0"), 5);
+    // Literal \033 or \e in source code should not be stripped
+    assert_eq!(visual_width(r"\033[0m"), 7);
+    assert_eq!(visual_width(r"\e[31m"), 6);
+    // Emoji with variation selector \u{fe0f}
+    assert_eq!(visual_width("⚠️"), 2);
+  }
+
+  #[test]
+  fn match_with_osc8_hyperlinks() {
+    let lines = split("in your \x1b[4m\x1b]8;id=jkb4deb49e;file:///usr/local/google/home/sselcuk/.tmux.conf#L117\x1b\\~/.tmux.conf\x1b[0m\x1b]8;;\x1b\\:");
+    let custom = [].to_vec();
+    let state = State::new(&lines, "abcd", &custom);
+    let results = state.matches(false, false);
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].text, "~/.tmux.conf");
+    assert_eq!(results[0].visual_x, 8);
   }
 }
