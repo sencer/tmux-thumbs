@@ -37,7 +37,30 @@ impl Executor for RealShell {
   }
 }
 
-const TMP_FILE: &str = "/tmp/thumbs-last";
+fn current_user() -> String {
+  std::env::var("USER")
+    .or_else(|_| std::env::var("USERNAME"))
+    .unwrap_or_else(|_| {
+      let output = std::process::Command::new("id").args(&["-un"]).output();
+      match output {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        Err(_) => "".to_string(),
+      }
+    })
+}
+
+fn user_tmp_path(prefix: &str, suffix: &str) -> String {
+  let user = current_user();
+  if user.is_empty() {
+    format!("/tmp/{}{}", prefix, suffix)
+  } else {
+    format!("/tmp/{}-{}{}", prefix, user, suffix)
+  }
+}
+
+fn shell_quote(s: &str) -> String {
+  format!("'{}'", s.replace('\'', "'\\''"))
+}
 
 #[allow(dead_code)]
 fn dbg(msg: &str) {
@@ -45,7 +68,7 @@ fn dbg(msg: &str) {
     .create(true)
     .write(true)
     .append(true)
-    .open("/tmp/thumbs.log")
+    .open(user_tmp_path("thumbs", ".log"))
     .expect("Unable to open log file");
 
   writeln!(&mut file, "{}", msg).expect("Unable to write log file");
@@ -208,6 +231,7 @@ pub struct Swapper<'a> {
   osc52: bool,
   active_pane_id: Option<String>,
   active_pane_height: Option<i32>,
+  active_pane_width: Option<i32>,
   active_pane_scroll_position: Option<i32>,
   active_pane_zoomed: Option<bool>,
   active_window_id: Option<String>,
@@ -239,6 +263,7 @@ impl<'a> Swapper<'a> {
       osc52,
       active_pane_id: None,
       active_pane_height: None,
+      active_pane_width: None,
       active_pane_scroll_position: None,
       active_pane_zoomed: None,
       active_window_id: None,
@@ -251,16 +276,7 @@ impl<'a> Swapper<'a> {
   fn read_options(&mut self) -> String {
     #[cfg(not(test))]
     {
-      let user = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| {
-          let output = std::process::Command::new("id").args(&["-un"]).output();
-          match output {
-            Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            Err(_) => "".to_string(),
-          }
-        });
-
+      let user = current_user();
       let file_path = format!("/tmp/thumbs-options-{}.txt", user);
 
       if !user.is_empty() {
@@ -281,7 +297,7 @@ impl<'a> Swapper<'a> {
       "tmux",
       "display-message",
       "-p",
-      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:#{@thumbs-active}:#{pane_current_command}:#{window_id}",
+      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:#{@thumbs-active}:#{pane_current_command}:#{window_id}:#{pane_width}",
     ];
 
     let output = self
@@ -318,6 +334,12 @@ impl<'a> Swapper<'a> {
     let window_id = chunks.get(7).expect("Unable to retrieve window id");
     self.active_window_id = Some(window_id.to_string());
 
+    let pane_width = chunks
+      .get(8)
+      .and_then(|w| w.parse().ok())
+      .unwrap_or(80);
+    self.active_pane_width = Some(pane_width);
+
     true
   }
 
@@ -342,11 +364,11 @@ impl<'a> Swapper<'a> {
           "alphabet" | "position" | "fg-color" | "bg-color" | "alt-bg-color" | "dim-color" | "hint-bg-color"
           | "hint-fg-color" | "select-fg-color" | "select-bg-color" | "multi-fg-color" | "multi-bg-color" => {
             args.push(format!("--{}", name));
-            args.push(format!("'{}'", value));
+            args.push(shell_quote(&value));
           }
           _ if name.starts_with("regexp") => {
             args.push("--regexp".to_string());
-            args.push(format!("'{}'", value.replace("\\\\", "\\")));
+            args.push(shell_quote(&value.replace("\\\\", "\\")));
           }
           _ => {}
         }
@@ -397,7 +419,11 @@ impl<'a> Swapper<'a> {
     };
     let final_text = visible_lines.join("\n");
 
-    std::fs::write("/tmp/thumbs-captured.log", final_text).unwrap();
+    let captured_log_path = user_tmp_path("thumbs-captured", ".log");
+    let stderr_log_path = user_tmp_path("thumbs-stderr", ".log");
+    let tmp_last_path = user_tmp_path("thumbs-last", "");
+
+    std::fs::write(&captured_log_path, final_text).unwrap();
 
     // 3. Construct pane command that just reads from the pre-captured log
     let active_pane_zoomed = self.active_pane_zoomed.as_mut().unwrap().clone();
@@ -409,19 +435,23 @@ impl<'a> Swapper<'a> {
 
     let target_window_id = self.active_window_id.as_ref().unwrap();
     let expected_height = self.active_pane_height.unwrap();
+    let expected_width = self.active_pane_width.unwrap();
     let wait_loop = format!(
-        "while true; do w=$(tmux display-message -p '#{{window_id}}'); h=$(stty size | cut -d' ' -f1); if [ \"$w\" = \"{target}\" ] && [ \"$h\" = \"{expected}\" ]; then break; fi; sleep 0.01; done",
+        "while true; do w=$(tmux display-message -p -t \"$TMUX_PANE\" '#{{window_id}}'); s=$(stty size); if [ \"$w\" = \"{target}\" ] && [ \"$s\" = \"{expected_h} {expected_w}\" ]; then break; fi; sleep 0.01; done",
         target = target_window_id,
-        expected = expected_height
+        expected_h = expected_height,
+        expected_w = expected_width
     );
 
     let pane_command = format!(
-        "{wait_loop}; ({dir}/target/release/thumbs -f '%U:%H' -t {tmp} --input /tmp/thumbs-captured.log {args}) 2>/tmp/thumbs-stderr.log; tmux swap-pane -t {active_pane_id} {post_commands} \\; wait-for -S {signal}",
+        "{wait_loop}; ({dir}/target/release/thumbs -f '%U:%H' -t {tmp} --input {captured} {args}) 2>{stderr}; tmux swap-pane -t {active_pane_id} {post_commands} \\; wait-for -S {signal}",
         wait_loop = wait_loop,
         active_pane_id = active_pane_id,
         post_commands = post_commands,
         dir = self.dir,
-        tmp = TMP_FILE,
+        tmp = tmp_last_path,
+        captured = captured_log_path,
+        stderr = stderr_log_path,
         args = args.join(" "),
         signal = self.signal
     );
@@ -497,17 +527,17 @@ impl<'a> Swapper<'a> {
   }
 
   pub fn retrieve_content(&mut self) {
-    let retrieve_command = vec!["cat", TMP_FILE];
-    let params = retrieve_command.iter().map(|arg| arg.to_string()).collect();
+    let tmp_last_path = user_tmp_path("thumbs-last", "");
+    let retrieve_command = vec!["cat".to_string(), tmp_last_path];
 
-    self.content = Some(self.executor.execute(params));
+    self.content = Some(self.executor.execute(retrieve_command));
   }
 
   pub fn destroy_content(&mut self) {
-    let retrieve_command = vec!["rm", TMP_FILE];
-    let params = retrieve_command.iter().map(|arg| arg.to_string()).collect();
+    let tmp_last_path = user_tmp_path("thumbs-last", "");
+    let retrieve_command = vec!["rm".to_string(), tmp_last_path];
 
-    self.executor.execute(params);
+    self.executor.execute(retrieve_command);
   }
 
   pub fn send_osc52(&mut self) {}
@@ -649,7 +679,7 @@ mod tests {
 
   #[test]
   fn prevent_nested_execution_in_thumbs_pane() {
-    let last_command_outputs = vec!["%97:0:24::0:1:thumbs:@0".to_string()];
+    let last_command_outputs = vec!["%97:0:24::0:1:thumbs:@0:80".to_string()];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
       Box::new(&mut executor),
@@ -666,7 +696,7 @@ mod tests {
 
   #[test]
   fn retrieve_active_pane() {
-    let last_command_outputs = vec!["%97:0:24::0::active:@0".to_string()];
+    let last_command_outputs = vec!["%97:0:24::0::active:@0:120".to_string()];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
       Box::new(&mut executor),
@@ -680,6 +710,8 @@ mod tests {
     swapper.capture_active_pane();
 
     assert_eq!(swapper.active_pane_id.unwrap(), "%97");
+    assert_eq!(swapper.active_pane_height.unwrap(), 24);
+    assert_eq!(swapper.active_pane_width.unwrap(), 120);
   }
 
   #[test]
@@ -690,7 +722,7 @@ mod tests {
       "%100".to_string(),
       "/tmp/some_path\n".to_string(),
       "".to_string(),
-      "%98:0:24::0::active:@0".to_string(),
+      "%98:0:24::0::active:@0:80".to_string(),
     ];
     let mut executor = TestShell::new(last_command_outputs);
     let mut swapper = Swapper::new(
@@ -709,6 +741,12 @@ mod tests {
     let expectation = vec!["tmux", "swap-pane", "-d", "-s", "%98", "-t", "%100"];
 
     assert_eq!(executor.last_executed().unwrap(), expectation);
+  }
+
+  #[test]
+  fn test_shell_quote() {
+    assert_eq!(shell_quote("simple"), "'simple'");
+    assert_eq!(shell_quote("a'b'c"), "'a'\\''b'\\''c'");
   }
 
   #[test]
