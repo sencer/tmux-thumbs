@@ -266,7 +266,12 @@ impl<'a> State<'a> {
       }
     }
 
-    raw_matches.sort_by(|a, b| a.start.cmp(&b.start).then(a.priority.cmp(&b.priority)));
+    raw_matches.sort_by(|a, b| {
+      a.start
+        .cmp(&b.start)
+        .then(b.end.cmp(&a.end))
+        .then(a.priority.cmp(&b.priority))
+    });
 
     let mut last_end = 0;
     for rm in raw_matches {
@@ -740,5 +745,16 @@ mod tests {
       !texts.contains(&"eb828bec"),
       "eb828bec should not be matched across line boundary"
     );
+  }
+
+  #[test]
+  fn test_url_not_split_by_custom_path_regex() {
+    let lines = split("origin    https://github.com/catgoose/nvim-colorizer.lua (fetch)");
+    let custom =
+      vec![r"~?/{0,3}(?:[\w.*${}:@+~%]+(?:[=\-][\w.*${}:@+~%]+)*/)+(?:[\w.*${}:@+~%]+(?:[?@=\-][\w.*${}:@+~%]*)*)?"];
+    let state = State::new(&lines, "abcd", &custom);
+    let results = state.matches(false, false);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].text, "https://github.com/catgoose/nvim-colorizer.lua");
   }
 }

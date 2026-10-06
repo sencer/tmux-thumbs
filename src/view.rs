@@ -701,38 +701,59 @@ mod tests {
   fn test_render_vis_file() {
     if let Ok(content) = std::fs::read_to_string("/usr/local/google/home/sselcuk/vis.txt") {
       let lines = split(&content);
-      let custom = [].to_vec();
+      let custom = vec![
+        r"~?/{0,3}(?:[\w.*${}:@+~%]+(?:[=\-][\w.*${}:@+~%]+)*/)+(?:[\w.*${}:@+~%]+(?:[?@=\-][\w.*${}:@+~%]*)*)?",
+        r"\b[a-z]{7,12}\b",
+      ];
       let state = state::State::new(&lines, "qwerty", &custom);
+
       let mut view = View::new(
         &state,
         false,
+        true,
+        true,
         false,
-        false,
-        false,
-        false,
-        "left",
+        true,
+        "off_left",
+        colors::get_color("#2E3440"),
+        colors::get_color("#88C0D0"),
+        colors::get_color("yellow"),
+        colors::get_color("black"),
+        colors::get_color("#66FF33"),
         colors::get_color("default"),
-        colors::get_color("default"),
-        colors::get_color("default"),
-        colors::get_color("default"),
-        colors::get_color("default"),
-        colors::get_color("default"),
+        Some(colors::get_color("#2A3141")),
         None,
-        None,
-        colors::get_color("default"),
-        colors::get_color("default"),
+        colors::get_color("#2E3440"),
+        colors::get_color("#FF6633"),
       );
 
-      let b828bec_match = view.matches.iter().find(|m| m.text == "b828bec");
-      assert!(b828bec_match.is_some(), "b828bec must be matched");
-      assert!(b828bec_match.unwrap().hint.is_some(), "b828bec must get a hint");
+      // Verify key matches in the nvim buffer
+      let path_match = view
+        .matches
+        .iter()
+        .find(|m| m.text == "~/.dotfiles/bin/tmux-sync-clipboard" && m.y == 7);
+      assert!(path_match.is_some(), "tmux-sync-clipboard on line 7 must be matched");
+      assert!(path_match.unwrap().hint.is_some(), "Match must get a hint");
 
-      // Verify no phantom merged match like "eb828bec" exists
-      let phantom_match = view.matches.iter().find(|m| m.text == "eb828bec");
+      let clipboard_match = view.matches.iter().find(|m| m.text == "clipboard" && m.y == 21);
+      assert!(clipboard_match.is_some(), "clipboard on line 21 must be matched");
       assert!(
-        phantom_match.is_none(),
-        "eb828bec should not be matched across line boundary"
+        clipboard_match.unwrap().hint.is_some(),
+        "clipboard match must get a hint"
       );
+
+      // Verify style_ansi_line behavior:
+      // Line 7 has no syntax underline/background reset, so alt-bg persists up to colorcolumn
+      let alt_bg = colors::get_color("#2A3141");
+      let styled7 = style_ansi_line(lines[7], true, Some(&*alt_bg));
+      assert!(styled7.contains("\x1b[48;2;42;49;65m"));
+      assert!(styled7.contains("\x1b[48;2;37;42;46m"));
+
+      // Line 21 has `set` with underline reset, after which nvim emits its buffer background `15;20;25`
+      let styled21 = style_ansi_line(lines[21], true, Some(&*alt_bg));
+      assert!(styled21.contains("\x1b[48;2;42;49;65m"));
+      assert!(styled21.contains("\x1b[48;2;15;20;25m"));
+      assert!(styled21.contains("\x1b[48;2;37;42;46m"));
 
       let mut stdin = std::io::empty();
       let mut stdout = Vec::new();
