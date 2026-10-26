@@ -175,6 +175,18 @@ fn app_args() -> clap::ArgMatches {
         .long("dim-color")
         .num_args(1),
     )
+    .arg(
+      Arg::new("tab_positions")
+        .help("Sets the tab stop positions (comma-separated, from tmux #{pane_tabs})")
+        .long("tab-positions")
+        .num_args(1),
+    )
+    .arg(
+      Arg::new("tab_width")
+        .help("Sets the tab width (default 8)")
+        .long("tab-width")
+        .num_args(1),
+    )
     .get_matches()
 }
 
@@ -224,7 +236,16 @@ fn main() {
 
   let lines = output.split('\n').collect::<Vec<&str>>();
 
-  let state = state::State::new(&lines, alphabet, &regexp);
+  let tab_stops = if let Some(width_str) = args.get_one::<String>("tab_width") {
+    let w = width_str.parse::<usize>().unwrap_or(8);
+    state::TabStops::new(w)
+  } else if let Some(positions_str) = args.get_one::<String>("tab_positions") {
+    state::TabStops::from_positions_str(positions_str)
+  } else {
+    state::TabStops::default()
+  };
+
+  let state = state::State::new_with_tabs(&lines, alphabet, &regexp, tab_stops);
 
   let selected = {
     let mut viewbox = view::View::new(

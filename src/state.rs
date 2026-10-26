@@ -101,12 +101,88 @@ pub struct State<'a> {
   pub line_widths: Vec<usize>,
   pub j: String,
   pub map: Vec<(i32, i32, usize)>,
+  pub tab_stops: TabStops,
   alphabet: &'a str,
   regexp: &'a Vec<&'a str>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct TabStops {
+  positions: Vec<usize>,
+  interval: usize,
+}
+
+impl Default for TabStops {
+  fn default() -> Self {
+    TabStops::new(8)
+  }
+}
+
+impl TabStops {
+  pub fn new(width: usize) -> Self {
+    let interval = if width == 0 { 8 } else { width };
+    TabStops {
+      positions: Vec::new(),
+      interval,
+    }
+  }
+
+  pub fn from_positions_str(s: &str) -> Self {
+    let mut positions: Vec<usize> = s
+      .split(',')
+      .filter_map(|p| p.trim().parse::<usize>().ok())
+      .collect();
+    positions.sort_unstable();
+    positions.dedup();
+
+    if positions.is_empty() {
+      return TabStops::default();
+    }
+
+    let interval = positions
+      .windows(2)
+      .last()
+      .map(|w| w[1].saturating_sub(w[0]))
+      .filter(|&d| d > 0)
+      .unwrap_or(8);
+
+    TabStops {
+      positions,
+      interval,
+    }
+  }
+
+  pub fn next_tab(&self, col: usize) -> usize {
+    if self.positions.is_empty() {
+      return col + (self.interval - (col % self.interval));
+    }
+
+    if let Some(&pos) = self.positions.iter().find(|&&pos| pos > col) {
+      pos
+    } else {
+      let last = *self.positions.last().unwrap();
+      let diff = col.saturating_sub(last);
+      last + ((diff / self.interval) + 1) * self.interval
+    }
+  }
+
+  pub fn tab_width_at(&self, col: usize) -> usize {
+    self.next_tab(col) - col
+  }
+}
+
 impl<'a> State<'a> {
+  #[allow(dead_code)]
   pub fn new(lines: &'a Vec<&'a str>, alphabet: &'a str, regexp: &'a Vec<&'a str>) -> State<'a> {
+    Self::new_with_tabs(lines, alphabet, regexp, TabStops::default())
+  }
+
+  pub fn new_with_tabs(
+    lines: &'a Vec<&'a str>,
+    alphabet: &'a str,
+    regexp: &'a Vec<&'a str>,
+    tab_stops: TabStops,
+  ) -> State<'a> {
     let total_bytes: usize = lines.iter().map(|l| l.len()).sum();
     let mut j = String::with_capacity(total_bytes + lines.len());
     let mut map = Vec::with_capacity(total_bytes + lines.len());
@@ -126,7 +202,7 @@ impl<'a> State<'a> {
         let mut iter = segment.char_indices().peekable();
         while let Some((byte_offset, ch)) = iter.next() {
           let ch_width = if ch == '\t' {
-            8 - (total_width % 8)
+            tab_stops.tab_width_at(total_width)
           } else if let Some(&(_, '\u{fe0f}')) = iter.peek() {
             let (fe0f_offset, _) = iter.next().unwrap();
             let end_offset = fe0f_offset + '\u{fe0f}'.len_utf8();
@@ -165,7 +241,7 @@ impl<'a> State<'a> {
         let mut iter = segment.char_indices().peekable();
         while let Some((byte_offset, ch)) = iter.next() {
           if ch == '\t' {
-            let w = 8 - (*visual_col % 8);
+            let w = tab_stops.tab_width_at(*visual_col);
             for _ in 0..ch.len_utf8() {
               map.push((v_line_index as i32, *char_count as i32, *visual_col));
             }
@@ -222,6 +298,7 @@ impl<'a> State<'a> {
       line_widths,
       j,
       map,
+      tab_stops,
       alphabet,
       regexp,
     }
@@ -679,6 +756,45 @@ mod tests {
     assert_eq!(results.get(6).unwrap().text, "123e4567-e89b-12d3-a456-426655440000");
     assert_eq!(results.get(7).unwrap().text, "8888");
     assert_eq!(results.get(8).unwrap().text, "https://crates.io/23456/fd70b569");
+  }
+
+  #[test]
+  fn test_tab_stops_and_git_status() {
+    let tabs_default = TabStops::default();
+    assert_eq!(tabs_default.tab_width_at(0), 8);
+    assert_eq!(tabs_default.tab_width_at(2), 6);
+
+    let tabs_2 = TabStops::new(2);
+    assert_eq!(tabs_2.tab_width_at(0), 2);
+    assert_eq!(tabs_2.tab_width_at(1), 1);
+    assert_eq!(tabs_2.tab_width_at(2), 2);
+
+    let tabs_from_tmux = TabStops::from_positions_str("0,2,4,6,8,10,12,14");
+    assert_eq!(tabs_from_tmux.tab_width_at(0), 2);
+    assert_eq!(tabs_from_tmux.tab_width_at(1), 1);
+    assert_eq!(tabs_from_tmux.tab_width_at(2), 2);
+    assert_eq!(tabs_from_tmux.tab_width_at(14), 2);
+    assert_eq!(tabs_from_tmux.tab_width_at(15), 1);
+
+    // Git status modified line: \t\x1b[31mmodified:   bin/update-swaylock-theme\x1b[m
+    let lines = split("\t\x1b[31mmodified:   bin/update-swaylock-theme\x1b[m");
+    let custom = [].to_vec();
+
+    // Default 8-space tabs:
+    let state_8 = State::new_with_tabs(&lines, "abcd", &custom, tabs_default);
+    let results_8 = state_8.matches(false, false);
+    assert_eq!(results_8.len(), 1);
+    assert_eq!(results_8[0].text, "bin/update-swaylock-theme");
+    // Tab (8) + "modified:   " (12) = 20
+    assert_eq!(results_8[0].visual_x, 20);
+
+    // 2-column tabs (from `tabs -2`):
+    let state_2 = State::new_with_tabs(&lines, "abcd", &custom, tabs_from_tmux);
+    let results_2 = state_2.matches(false, false);
+    assert_eq!(results_2.len(), 1);
+    assert_eq!(results_2[0].text, "bin/update-swaylock-theme");
+    // Tab (2) + "modified:   " (12) = 14 (stays in place!)
+    assert_eq!(results_2[0].visual_x, 14);
   }
 
   #[test]

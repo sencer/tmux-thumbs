@@ -142,7 +142,7 @@ impl<'a> View<'a> {
 
         let line_vis_width = self.state.line_widths[index];
         let trimmed_line = if line_vis_width > w {
-          slice_line_to_width(line, w)
+          slice_line_to_width(line, w, &self.state.tab_stops)
         } else {
           line.to_string()
         };
@@ -158,7 +158,7 @@ impl<'a> View<'a> {
           None
         };
 
-        let final_line = style_ansi_line(&trimmed_line, self.faint, bg_color);
+        let final_line = style_ansi_line(&trimmed_line, self.faint, bg_color, &self.state.tab_stops);
         write!(
           buf,
           "{goto}{fg}{text}{reset_fg}",
@@ -206,7 +206,7 @@ impl<'a> View<'a> {
       if screen_x + raw_width <= w {
         // Single-row match: clamp to remaining row width so contrast brackets never wrap
         let clamped_text = if text.width() > max_row_width {
-          slice_line_to_width(&text, max_row_width)
+          slice_line_to_width(&text, max_row_width, &self.state.tab_stops)
         } else {
           text
         };
@@ -231,7 +231,7 @@ impl<'a> View<'a> {
           if avail == 0 {
             break;
           }
-          let chunk = slice_line_to_width(remaining, avail);
+          let chunk = slice_line_to_width(remaining, avail, &self.state.tab_stops);
           if chunk.is_empty() {
             break;
           }
@@ -307,7 +307,7 @@ impl<'a> View<'a> {
         if !typed_hint.is_empty() && hint.starts_with(typed_hint) {
           let typed_x = hint_screen_x + if self.contrast { 1 } else { 0 };
           if typed_x < w {
-            let clamped_typed = slice_line_to_width(typed_hint, w - typed_x);
+            let clamped_typed = slice_line_to_width(typed_hint, w - typed_x, &self.state.tab_stops);
             write!(
               buf,
               "{goto}{background}{foregroud}{text}{resetf}{resetb}",
@@ -456,7 +456,7 @@ impl<'a> View<'a> {
   }
 }
 
-fn slice_line_to_width(line: &str, max_w: usize) -> String {
+fn slice_line_to_width(line: &str, max_w: usize, tab_stops: &state::TabStops) -> String {
   let mut current_width = 0;
   let mut last_end = 0;
 
@@ -464,7 +464,7 @@ fn slice_line_to_width(line: &str, max_w: usize) -> String {
     let mut iter = segment.char_indices().peekable();
     while let Some((byte_offset, ch)) = iter.next() {
       let ch_width = if ch == '\t' {
-        8 - (*current_width % 8)
+        tab_stops.tab_width_at(*current_width)
       } else if let Some(&(_, '\u{fe0f}')) = iter.peek() {
         let (fe0f_offset, _) = iter.next().unwrap();
         let end_offset = fe0f_offset + '\u{fe0f}'.len_utf8();
@@ -539,18 +539,25 @@ mod tests {
 
   #[test]
   fn test_slice_line_to_width() {
-    assert_eq!(slice_line_to_width("hello", 3), "hel");
-    assert_eq!(slice_line_to_width("\x1b[31mhello\x1b[m", 3), "\x1b[31mhel");
-    assert_eq!(slice_line_to_width("hello \x1b[31mworld\x1b[m", 8), "hello \x1b[31mwo");
-    assert_eq!(slice_line_to_width("\tmodified", 12), "\tmodi");
-    assert_eq!(slice_line_to_width("a\tmodified", 12), "a\tmodi");
+    let tabs = state::TabStops::default();
+    assert_eq!(slice_line_to_width("hello", 3, &tabs), "hel");
+    assert_eq!(slice_line_to_width("\x1b[31mhello\x1b[m", 3, &tabs), "\x1b[31mhel");
+    assert_eq!(slice_line_to_width("hello \x1b[31mworld\x1b[m", 8, &tabs), "hello \x1b[31mwo");
+    assert_eq!(slice_line_to_width("\tmodified", 12, &tabs), "\tmodi");
+    assert_eq!(slice_line_to_width("a\tmodified", 12, &tabs), "a\tmodi");
     assert_eq!(
-      slice_line_to_width("\x1b]8;id=123;https://example.com\x1b\\hello\x1b]8;;\x1b\\", 3),
+      slice_line_to_width("\x1b]8;id=123;https://example.com\x1b\\hello\x1b]8;;\x1b\\", 3, &tabs),
       "\x1b]8;id=123;https://example.com\x1b\\hel"
     );
-    assert_eq!(slice_line_to_width("\x1b(Bhello", 3), "\x1b(Bhel");
-    assert_eq!(slice_line_to_width("⚠️bc", 2), "⚠️");
-    assert_eq!(slice_line_to_width("⚠️bc", 1), "");
+    assert_eq!(slice_line_to_width("\x1b(Bhello", 3, &tabs), "\x1b(Bhel");
+    assert_eq!(slice_line_to_width("⚠️bc", 2, &tabs), "⚠️");
+    assert_eq!(slice_line_to_width("⚠️bc", 1, &tabs), "");
+  }
+
+  #[test]
+  fn test_slice_line_to_width_custom_tabs() {
+    let tabs = state::TabStops::new(2);
+    assert_eq!(slice_line_to_width("\tmodified", 6, &tabs), "\tmodi");
   }
 
   #[test]
@@ -594,15 +601,16 @@ mod tests {
 
   #[test]
   fn test_style_ansi_line() {
+    let tabs = state::TabStops::default();
     // Faint mode restores after \x1b[0m, \x1b[m, \x1b[22m, compound \x1b[0;32m, and dims \x1b[1m bold
     assert_eq!(
-      style_ansi_line("\x1b[1mBold\x1b[0m plain \x1b[0;32mgreen\x1b[22m end", true, None),
+      style_ansi_line("\x1b[1mBold\x1b[0m plain \x1b[0;32mgreen\x1b[22m end", true, None, &tabs),
       "\x1b[2m\x1b[1m\x1b[22;2mBold\x1b[0m\x1b[2m plain \x1b[0;32m\x1b[2mgreen\x1b[22m\x1b[2m end\x1b[22m"
     );
 
     // 24-bit RGB parameters (like 38;2;0;1;22) are not mistaken for SGR 0, 1, or 22
     assert_eq!(
-      style_ansi_line("\x1b[38;2;0;1;22mtext\x1b[39m", true, None),
+      style_ansi_line("\x1b[38;2;0;1;22mtext\x1b[39m", true, None, &tabs),
       "\x1b[2m\x1b[38;2;0;1;22mtext\x1b[39m\x1b[22m"
     );
 
@@ -611,7 +619,7 @@ mod tests {
     let bg_seq = format!("{}", color::Bg(&*bg));
     let bg_reset = format!("{}", color::Bg(color::Reset));
     assert_eq!(
-      style_ansi_line("hello \x1b[44mblue\x1b[49m world", false, Some(&*bg)),
+      style_ansi_line("hello \x1b[44mblue\x1b[49m world", false, Some(&*bg), &tabs),
       format!(
         "{bg}hello \x1b[44mblue\x1b[49m{bg} world\x1b[K{reset}",
         bg = bg_seq,
@@ -619,8 +627,13 @@ mod tests {
       )
     );
 
-    // Tabs expand to 8-col tab stops
-    assert_eq!(style_ansi_line("a\tb", true, None), "\x1b[2ma       b\x1b[22m");
+    // Tabs expand to 8-col tab stops by default
+    assert_eq!(style_ansi_line("a\tb", true, None, &tabs), "\x1b[2ma       b\x1b[22m");
+
+    // Custom 2-col tab stops expand \t to 2 cols (or stays in place)
+    let tabs2 = state::TabStops::new(2);
+    assert_eq!(style_ansi_line("\ta", false, None, &tabs2), "  a");
+    assert_eq!(style_ansi_line("a\tb", false, None, &tabs2), "a b");
   }
 
   #[test]
@@ -745,12 +758,12 @@ mod tests {
       // Verify style_ansi_line behavior:
       // Line 7 has no syntax underline/background reset, so alt-bg persists up to colorcolumn
       let alt_bg = colors::get_color("#2A3141");
-      let styled7 = style_ansi_line(lines[7], true, Some(&*alt_bg));
+      let styled7 = style_ansi_line(lines[7], true, Some(&*alt_bg), &state.tab_stops);
       assert!(styled7.contains("\x1b[48;2;42;49;65m"));
       assert!(styled7.contains("\x1b[48;2;37;42;46m"));
 
       // Line 21 has `set` with underline reset, after which nvim emits its buffer background `15;20;25`
-      let styled21 = style_ansi_line(lines[21], true, Some(&*alt_bg));
+      let styled21 = style_ansi_line(lines[21], true, Some(&*alt_bg), &state.tab_stops);
       assert!(styled21.contains("\x1b[48;2;42;49;65m"));
       assert!(styled21.contains("\x1b[48;2;15;20;25m"));
       assert!(styled21.contains("\x1b[48;2;37;42;46m"));
@@ -764,7 +777,12 @@ mod tests {
   }
 }
 
-fn style_ansi_line(s: &str, faint: bool, bg_color: Option<&dyn color::Color>) -> String {
+fn style_ansi_line(
+  s: &str,
+  faint: bool,
+  bg_color: Option<&dyn color::Color>,
+  tab_stops: &state::TabStops,
+) -> String {
   let has_tabs = s.contains('\t');
   if !has_tabs && !faint && bg_color.is_none() {
     return s.to_string();
@@ -793,7 +811,7 @@ fn style_ansi_line(s: &str, faint: bool, bg_color: Option<&dyn color::Color>) ->
     if has_tabs {
       for (i, part) in segment.split('\t').enumerate() {
         if i > 0 {
-          let spaces = 8 - (*col % 8);
+          let spaces = tab_stops.tab_width_at(*col);
           for _ in 0..spaces {
             out.push(' ');
           }

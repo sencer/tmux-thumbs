@@ -235,6 +235,7 @@ pub struct Swapper<'a> {
   active_pane_scroll_position: Option<i32>,
   active_pane_zoomed: Option<bool>,
   active_window_id: Option<String>,
+  active_pane_tabs: Option<String>,
   thumbs_pane_id: Option<String>,
   content: Option<String>,
   signal: String,
@@ -267,6 +268,7 @@ impl<'a> Swapper<'a> {
       active_pane_scroll_position: None,
       active_pane_zoomed: None,
       active_window_id: None,
+      active_pane_tabs: None,
       thumbs_pane_id: None,
       content: None,
       signal,
@@ -297,7 +299,7 @@ impl<'a> Swapper<'a> {
       "tmux",
       "display-message",
       "-p",
-      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:#{@thumbs-active}:#{pane_current_command}:#{window_id}:#{pane_width}",
+      "#{pane_id}:#{?pane_in_mode,1,0}:#{pane_height}:#{scroll_position}:#{window_zoomed_flag}:#{@thumbs-active}:#{pane_current_command}:#{window_id}:#{pane_width}:#{pane_tabs}",
     ];
 
     let output = self
@@ -337,6 +339,9 @@ impl<'a> Swapper<'a> {
     let pane_width = chunks.get(8).and_then(|w| w.parse().ok()).unwrap_or(80);
     self.active_pane_width = Some(pane_width);
 
+    let pane_tabs = chunks.get(9).copied().filter(|s| !s.is_empty()).map(|s| s.to_string());
+    self.active_pane_tabs = pane_tabs;
+
     true
   }
 
@@ -360,6 +365,10 @@ impl<'a> Swapper<'a> {
           }
           "alphabet" | "position" | "fg-color" | "bg-color" | "alt-bg-color" | "dim-color" | "hint-bg-color"
           | "hint-fg-color" | "select-fg-color" | "select-bg-color" | "multi-fg-color" | "multi-bg-color" => {
+            args.push(format!("--{}", name));
+            args.push(shell_quote(&value));
+          }
+          "tab-width" => {
             args.push(format!("--{}", name));
             args.push(shell_quote(&value));
           }
@@ -436,6 +445,15 @@ impl<'a> Swapper<'a> {
         expected_h = expected_height,
         expected_w = expected_width
     );
+
+    if !args.iter().any(|arg| arg.starts_with("--tab-width")) {
+      if let Some(ref tabs) = self.active_pane_tabs {
+        if !tabs.is_empty() {
+          args.push("--tab-positions".to_string());
+          args.push(shell_quote(tabs));
+        }
+      }
+    }
 
     let pane_command = format!(
         "{wait_loop}; ({dir}/target/release/thumbs -f '%U:%H' -t {tmp} --input {captured} {args}) 2>{stderr}; tmux swap-pane -t {active_pane_id} {post_commands} \\; wait-for -S {signal}",
@@ -706,6 +724,28 @@ mod tests {
     assert_eq!(swapper.active_pane_id.unwrap(), "%97");
     assert_eq!(swapper.active_pane_height.unwrap(), 24);
     assert_eq!(swapper.active_pane_width.unwrap(), 120);
+    assert_eq!(swapper.active_pane_tabs, None);
+  }
+
+  #[test]
+  fn retrieve_active_pane_with_tabs() {
+    let last_command_outputs = vec!["%97:0:24::0::active:@0:120:0,2,4,6,8".to_string()];
+    let mut executor = TestShell::new(last_command_outputs);
+    let mut swapper = Swapper::new(
+      Box::new(&mut executor),
+      "".to_string(),
+      "".to_string(),
+      "".to_string(),
+      "".to_string(),
+      false,
+    );
+
+    swapper.capture_active_pane();
+
+    assert_eq!(swapper.active_pane_id.unwrap(), "%97");
+    assert_eq!(swapper.active_pane_height.unwrap(), 24);
+    assert_eq!(swapper.active_pane_width.unwrap(), 120);
+    assert_eq!(swapper.active_pane_tabs.unwrap(), "0,2,4,6,8");
   }
 
   #[test]
