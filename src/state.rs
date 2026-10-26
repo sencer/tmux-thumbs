@@ -128,10 +128,7 @@ impl TabStops {
   }
 
   pub fn from_positions_str(s: &str) -> Self {
-    let mut positions: Vec<usize> = s
-      .split(',')
-      .filter_map(|p| p.trim().parse::<usize>().ok())
-      .collect();
+    let mut positions: Vec<usize> = s.split(',').filter_map(|p| p.trim().parse::<usize>().ok()).collect();
     positions.sort_unstable();
     positions.dedup();
 
@@ -146,10 +143,7 @@ impl TabStops {
       .filter(|&d| d > 0)
       .unwrap_or(8);
 
-    TabStops {
-      positions,
-      interval,
-    }
+    TabStops { positions, interval }
   }
 
   pub fn next_tab(&self, col: usize) -> usize {

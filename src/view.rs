@@ -542,7 +542,10 @@ mod tests {
     let tabs = state::TabStops::default();
     assert_eq!(slice_line_to_width("hello", 3, &tabs), "hel");
     assert_eq!(slice_line_to_width("\x1b[31mhello\x1b[m", 3, &tabs), "\x1b[31mhel");
-    assert_eq!(slice_line_to_width("hello \x1b[31mworld\x1b[m", 8, &tabs), "hello \x1b[31mwo");
+    assert_eq!(
+      slice_line_to_width("hello \x1b[31mworld\x1b[m", 8, &tabs),
+      "hello \x1b[31mwo"
+    );
     assert_eq!(slice_line_to_width("\tmodified", 12, &tabs), "\tmodi");
     assert_eq!(slice_line_to_width("a\tmodified", 12, &tabs), "a\tmodi");
     assert_eq!(
@@ -604,7 +607,12 @@ mod tests {
     let tabs = state::TabStops::default();
     // Faint mode restores after \x1b[0m, \x1b[m, \x1b[22m, compound \x1b[0;32m, and dims \x1b[1m bold
     assert_eq!(
-      style_ansi_line("\x1b[1mBold\x1b[0m plain \x1b[0;32mgreen\x1b[22m end", true, None, &tabs),
+      style_ansi_line(
+        "\x1b[1mBold\x1b[0m plain \x1b[0;32mgreen\x1b[22m end",
+        true,
+        None,
+        &tabs
+      ),
       "\x1b[2m\x1b[1m\x1b[22;2mBold\x1b[0m\x1b[2m plain \x1b[0;32m\x1b[2mgreen\x1b[22m\x1b[2m end\x1b[22m"
     );
 
@@ -777,12 +785,7 @@ mod tests {
   }
 }
 
-fn style_ansi_line(
-  s: &str,
-  faint: bool,
-  bg_color: Option<&dyn color::Color>,
-  tab_stops: &state::TabStops,
-) -> String {
+fn style_ansi_line(s: &str, faint: bool, bg_color: Option<&dyn color::Color>, tab_stops: &state::TabStops) -> String {
   let has_tabs = s.contains('\t');
   if !has_tabs && !faint && bg_color.is_none() {
     return s.to_string();
